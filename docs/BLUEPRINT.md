@@ -744,63 +744,90 @@ If this tool is ever shared publicly:
 
 # Implementation Roadmap
 
-## Phase 1 — Foundation (Get Data Flowing)
+> **Progress Summary (last updated: 2026-02-22)**
+>
+> | Phase | Status | Tasks Done |
+> |---|---|---|
+> | Phase 1 — Foundation | ✅ Complete | 6/6 |
+> | Phase 2 — Yahoo Integration | 🔲 Not started | 0/5 |
+> | Phase 3 — Core Modules | 🔲 Not started | 0/4 |
+> | Phase 4 — Smart Features | 🔲 Not started | 0/4 |
+> | Phase 5 — Polish | 🔲 Not started | 0/4 |
+>
+> **Key files created in Phase 1:**
+> - `backend/main.py` — FastAPI app + APScheduler integration
+> - `backend/config.py` — Pydantic settings from `.env`
+> - `backend/database/models.py` — All 14 SQLAlchemy ORM models
+> - `backend/database/connection.py` — Async engine + session factory
+> - `backend/ingestion/mlb_stats.py` — MLB Stats API client (5 methods)
+> - `backend/ingestion/player_id_crosswalk.py` — Chadwick Bureau CSV → players table
+> - `backend/ingestion/savant.py` — Baseball Savant CSV fetcher
+> - `backend/ingestion/fangraphs.py` — FanGraphs CSV fetcher + projections
+> - `backend/ingestion/scheduler.py` — APScheduler job definitions
+> - `backend/api/routes/dashboard.py` — `GET /api/today` endpoint
+> - `frontend/src/app/page.tsx` — Dashboard home with game cards
+> - `frontend/src/lib/api.ts` — Backend API client + TypeScript types
+> - `shared/constants.py` — Team abbreviations, positions, enums
+>
+> **Next up:** Phase 2, Task 2.1 — Yahoo OAuth2 flow
 
-### Task 1.1: Project Scaffolding
-- Initialize monorepo with `backend/` (FastAPI) and `frontend/` (Next.js)
-- Set up Python virtualenv, `pyproject.toml` or `requirements.txt`
-- Set up Next.js with TypeScript, Tailwind CSS
-- Create SQLite database with SQLAlchemy models from the schema above
-- Create Makefile with common commands: `make backend`, `make frontend`, `make db-init`
-- `.env.example` with all required environment variables
-- **Done when:** `make backend` starts FastAPI on :8000, `make frontend` starts Next.js on :3000, database file is created with all tables
+## Phase 1 — Foundation (Get Data Flowing) ✅ COMPLETE
 
-### Task 1.2: Player ID Crosswalk
-- Download Chadwick Bureau `people.csv` and store in `data/chadwick/`
-- Write `player_id_crosswalk.py` that parses Chadwick CSV and populates the `players` table
-- Map: mlb_id, fangraphs_id, bref_id, full_name, position, bats, throws
-- Filter to active MLB players + top prospects (filter by last year played >= 2023)
-- Create a CLI command: `python -m backend.ingestion.player_id_crosswalk`
-- **Done when:** `players` table has ~1500+ rows with mlb_id and fangraphs_id populated for active players
+### Task 1.1: Project Scaffolding ✅
+- ~~Initialize monorepo with `backend/` (FastAPI) and `frontend/` (Next.js)~~
+- ~~Set up Python virtualenv, `pyproject.toml` or `requirements.txt`~~
+- ~~Set up Next.js with TypeScript, Tailwind CSS~~
+- ~~Create SQLite database with SQLAlchemy models from the schema above~~
+- ~~Create Makefile with common commands: `make backend`, `make frontend`, `make db-init`~~
+- ~~`.env.example` with all required environment variables~~
+- **Status:** FastAPI starts on :8000, Next.js on :3000, all 14 database tables created on startup. Python deps managed via `uv` (venv at `.venv/`).
 
-### Task 1.3: MLB Stats API Integration
-- Create `mlb_stats.py` client with methods for:
-  - `fetch_schedule(start_date, end_date)` → populates `games` table
-  - `fetch_rosters()` → updates player status (active/IL/minors) in `players` table
-  - `fetch_probable_pitchers(start_date, end_date)` → populates `probable_pitchers` table
-  - `fetch_transactions(start_date, end_date)` → populates `transactions` table
-  - `fetch_game_results(game_id)` → populates pitcher_appearances from box score data
-- Each method should be idempotent (safe to re-run, uses upsert logic)
-- Create CLI commands for each: `python -m backend.ingestion.mlb_stats --action=schedule`
-- **Done when:** All five methods work, data lands in SQLite, can verify with `sqlite3` CLI
+### Task 1.2: Player ID Crosswalk ✅
+- ~~Download Chadwick Bureau `people.csv` and store in `data/chadwick/`~~
+- ~~Write `player_id_crosswalk.py` that parses Chadwick CSV and populates the `players` table~~
+- ~~Map: mlb_id, fangraphs_id, bref_id, full_name, position, bats, throws~~
+- ~~Filter to active MLB players + top prospects (filter by last year played >= 2023)~~
+- ~~Create a CLI command: `python -m backend.ingestion.player_id_crosswalk`~~
+- **Status:** Script downloads Chadwick CSV, filters to active players, upserts in batches of 500 with ON CONFLICT logic.
 
-### Task 1.4: Nightly Stats Ingestion
-- Create `savant.py` that fetches Statcast leaderboards (batting + pitching) via CSV export URL
-- Create `fangraphs.py` that fetches leaderboards via CSV export URL
-- Both store results in `player_stats` table as JSON blobs, keyed by player_id + date + source
-- Map external IDs to internal player_id using the crosswalk
-- Log unmatched players for review
-- **Done when:** Running both ingestion scripts produces `player_stats` rows for today's date with Savant and FanGraphs data
+### Task 1.3: MLB Stats API Integration ✅
+- ~~Create `mlb_stats.py` client with methods for:~~
+  - ~~`fetch_schedule(start_date, end_date)` → populates `games` table~~
+  - ~~`fetch_rosters()` → updates player status (active/IL/minors) in `players` table~~
+  - ~~`fetch_probable_pitchers(start_date, end_date)` → populates `probable_pitchers` table~~
+  - ~~`fetch_transactions(start_date, end_date)` → populates `transactions` table~~
+  - ~~`fetch_game_results(game_id)` → populates pitcher_appearances from box score data~~
+- ~~Each method should be idempotent (safe to re-run, uses upsert logic)~~
+- ~~Create CLI commands for each: `python -m backend.ingestion.mlb_stats --action=schedule`~~
+- **Status:** All five methods work with SQLite upserts. Verified live: fetched 125 spring training games and 90 probable pitchers on first run. CLI supports `--action`, `--start-date`, `--end-date`, `--game-id`.
 
-### Task 1.5: APScheduler Setup
-- Integrate APScheduler into `main.py` (BackgroundScheduler)
-- Define all jobs from the Ingestion Schedule table above
-- Jobs should log start/end/duration and handle exceptions gracefully (one failed job shouldn't kill others)
-- Startup trigger: run critical jobs on app start (schedule, rosters, probable pitchers) so the dashboard isn't empty on first launch
-- **Done when:** Starting the backend triggers initial data load, and jobs run on schedule thereafter
+### Task 1.4: Nightly Stats Ingestion ✅
+- ~~Create `savant.py` that fetches Statcast leaderboards (batting + pitching) via CSV export URL~~
+- ~~Create `fangraphs.py` that fetches leaderboards via CSV export URL~~
+- ~~Both store results in `player_stats` table as JSON blobs, keyed by player_id + date + source~~
+- ~~Map external IDs to internal player_id using the crosswalk~~
+- ~~Log unmatched players for review~~
+- **Status:** Both fetchers store JSON blobs in `player_stats`. FanGraphs also supports ROS projection fetching. Configurable CSV URLs for when Savant/FG change params.
 
-### Task 1.6: Basic Frontend Shell
-- Create a minimal dashboard page at `/` that calls the backend API
-- Backend endpoint: `GET /api/today` — returns today's games with probable pitchers
-- Display as a simple table/list: game time, teams, probable pitchers, game status
-- Prove the full pipeline works: scheduler → SQLite → FastAPI → Next.js → browser
-- **Done when:** Visiting localhost:3000 shows today's MLB games with probable pitchers
+### Task 1.5: APScheduler Setup ✅
+- ~~Integrate APScheduler into `main.py` (BackgroundScheduler)~~
+- ~~Define all jobs from the Ingestion Schedule table above~~
+- ~~Jobs should log start/end/duration and handle exceptions gracefully (one failed job shouldn't kill others)~~
+- ~~Startup trigger: run critical jobs on app start (schedule, rosters, probable pitchers) so the dashboard isn't empty on first launch~~
+- **Status:** AsyncIOScheduler integrated into FastAPI lifespan. 7 jobs defined (schedule/rosters/pitchers/transactions/savant/fangraphs/projections). Startup runs schedule + probable pitchers + rosters as background task.
+
+### Task 1.6: Basic Frontend Shell ✅
+- ~~Create a minimal dashboard page at `/` that calls the backend API~~
+- ~~Backend endpoint: `GET /api/today` — returns today's games with probable pitchers~~
+- ~~Display as a simple table/list: game time, teams, probable pitchers, game status~~
+- ~~Prove the full pipeline works: scheduler → SQLite → FastAPI → Next.js → browser~~
+- **Status:** Dashboard home renders game cards with team names, probable pitchers, game times, and venue. Full pipeline verified: scheduler → SQLite → FastAPI → Next.js → browser.
 
 ---
 
-## Phase 2 — Yahoo Integration (Make It Personal)
+## Phase 2 — Yahoo Integration (Make It Personal) 🔲 TODO
 
-### Task 2.1: Yahoo OAuth2 Flow
+### Task 2.1: Yahoo OAuth2 Flow 🔲
 - Register an app at Yahoo Developer portal
 - Implement OAuth2 authorization code flow in `yahoo/auth.py`
 - Endpoints: `GET /auth/yahoo` (redirect to Yahoo), `GET /auth/yahoo/callback` (exchange code for token)
@@ -808,7 +835,7 @@ If this tool is ever shared publicly:
 - Implement token refresh logic (Yahoo tokens expire in 1 hour)
 - **Done when:** Can click "Connect Yahoo" in the frontend, complete OAuth, and see token stored in DB
 
-### Task 2.2: Yahoo Fantasy API Client
+### Task 2.2: Yahoo Fantasy API Client 🔲
 - Create `yahoo/client.py` with methods:
   - `get_leagues()` → list user's MLB leagues
   - `get_league_settings(league_key)` → scoring categories, roster config
@@ -818,7 +845,7 @@ If this tool is ever shared publicly:
 - All methods use the stored OAuth token and handle refresh automatically
 - **Done when:** Can call each method from CLI and get valid data back for both leagues
 
-### Task 2.3: Yahoo → Internal Player ID Mapping
+### Task 2.3: Yahoo → Internal Player ID Mapping 🔲
 - When syncing a Yahoo roster, map each Yahoo player to internal `players` table
 - Strategy: match on name (fuzzy) + team + position
 - Store yahoo_id in `players` table (separate fields for each league if IDs differ)
@@ -826,13 +853,13 @@ If this tool is ever shared publicly:
 - Create a small admin endpoint to manually link unmatched players
 - **Done when:** Syncing both league rosters results in >95% automatic match rate
 
-### Task 2.4: League Setup + Roster Sync
+### Task 2.4: League Setup + Roster Sync 🔲
 - On first connection, populate `user_leagues` for both leagues with settings
 - Create recurring job (every 15 min) to sync rosters to `user_rosters` table
 - Store scoring categories so analytics engine knows what matters per league
 - **Done when:** `user_leagues` and `user_rosters` tables are populated and stay current
 
-### Task 2.5: "My Roster" Dashboard View
+### Task 2.5: "My Roster" Dashboard View 🔲
 - Frontend page at `/roster` with tabs for each league
 - For each player: name, team, position, today's game status, opponent, key stats
 - Pull from backend: `GET /api/roster/{league_id}` — joins user_rosters with players, games, lineups, player_stats
@@ -840,16 +867,16 @@ If this tool is ever shared publicly:
 
 ---
 
-## Phase 3 — Core Modules
+## Phase 3 — Core Modules 🔲 TODO
 
-### Task 3.1: Lineup Tracker
+### Task 3.1: Lineup Tracker 🔲
 - Backend: `GET /api/lineups/today` — all games with lineup data, annotated with "my player" / "watchlist" / "free agent" flags
 - Frontend page at `/lineups`: grid of today's games, each expandable to show batting order
 - Color-coded player names by fantasy relevance
 - Auto-refresh every 2 minutes when lineups are being posted (typically 2-5 PM ET)
 - **Done when:** Can see all today's lineups with my players highlighted
 
-### Task 3.2: Pitching Planner
+### Task 3.2: Pitching Planner 🔲
 - Backend: `GET /api/pitching/week` — my SPs mapped to their starts this week with matchup context
 - Include: opponent, park factor, opponent team wRC+, pitcher's last 3 starts
 - Identify two-start pitchers
@@ -857,14 +884,14 @@ If this tool is ever shared publicly:
 - Frontend page at `/pitching`: calendar grid view
 - **Done when:** Can see my pitching schedule for the week with matchup quality indicators
 
-### Task 3.3: Reliever Usage Tracking
+### Task 3.3: Reliever Usage Tracking 🔲
 - Ensure `pitcher_appearances` table is populated nightly from box score data (task 1.3)
 - Implement `reliever_roles.py` using the algorithm described in Key Algorithms section
 - Backend: `GET /api/bullpen` — all classified relievers with usage data and availability
 - Frontend page at `/bullpen`: filterable table with role badges, usage heatmap, availability indicator
 - **Done when:** Can see all closers/setup men with role classifications and trailing usage data
 
-### Task 3.4: Waiver Wire Intelligence
+### Task 3.4: Waiver Wire Intelligence 🔲
 - Backend: `GET /api/waivers/{league_id}` — scored and ranked free agents
 - Score using the waiver wire algorithm (different for roto vs H2H)
 - Include: ROS projection, last 14 day stats, ownership %, add/drop trend
@@ -873,22 +900,22 @@ If this tool is ever shared publicly:
 
 ---
 
-## Phase 4 — Smart Features
+## Phase 4 — Smart Features 🔲 TODO
 
-### Task 4.1: Start/Sit Recommendations
+### Task 4.1: Start/Sit Recommendations 🔲
 - Implement `start_sit.py` using the algorithm described above
 - Add confidence scores to the roster view for each hitter
 - Backend: extend `GET /api/roster/{league_id}` to include start_sit_score
 - Frontend: add confidence badge/bar to each player row on roster page
 - **Done when:** Every hitter on my roster has a start/sit confidence score for today
 
-### Task 4.2: Matchup Projections (H2H League)
+### Task 4.2: Matchup Projections (H2H League) 🔲
 - Implement `matchup.py` projection engine
 - Backend: `GET /api/matchup/{league_id}` — projected category outcomes vs opponent
 - Frontend page at `/matchup`: side-by-side visualization, swing categories highlighted
 - **Done when:** Can see projected category wins/losses for the current H2H matchup week
 
-### Task 4.3: Prospect Watchlist
+### Task 4.3: Prospect Watchlist 🔲
 - Allow user to import FanGraphs prospect rankings via CSV upload
 - Backend: CRUD endpoints for prospect watchlist
 - Implement `prospect_signals.py` for call-up likelihood scoring
@@ -896,7 +923,7 @@ If this tool is ever shared publicly:
 - Frontend page at `/prospects`: ranked list with signal indicators
 - **Done when:** Can view prospect watchlist with call-up likelihood signals and MiLB stats
 
-### Task 4.4: Alerts System
+### Task 4.4: Alerts System 🔲
 - Create alert generation logic that runs after each data sync
 - Store alerts in `alerts` table
 - Backend: `GET /api/alerts` — unread alerts, `POST /api/alerts/{id}/read`
@@ -905,25 +932,25 @@ If this tool is ever shared publicly:
 
 ---
 
-## Phase 5 — Polish
+## Phase 5 — Polish 🔲 TODO
 
-### Task 5.1: Dashboard Home Refinement
+### Task 5.1: Dashboard Home Refinement 🔲
 - Aggregate the most important info from all modules into the home view
 - Today's alerts, my players' game times, key pitching matchups, bullpen availability
 - Design for "glance and go" — the user should know what matters in 10 seconds
 
-### Task 5.2: Mobile Responsive Views
+### Task 5.2: Mobile Responsive Views 🔲
 - Ensure all pages render well on mobile
 - Priority: dashboard home, roster, lineups (these are checked on-the-go)
 - Lower priority for mobile: pitching planner, matchup analyzer (desktop workflows)
 
-### Task 5.3: Error Handling & Resilience
+### Task 5.3: Error Handling & Resilience 🔲
 - Graceful handling of API failures (MLB API down, Yahoo token expired, Savant CSV format changed)
 - Retry logic with exponential backoff for transient failures
 - Clear UI indicators when data is stale ("Last updated: 2 hours ago — MLB API unreachable")
 - Dead letter queue for failed sync jobs (log and move on, don't block other jobs)
 
-### Task 5.4: Multi-User Prep (Optional)
+### Task 5.4: Multi-User Prep (Optional) 🔲
 - If distributing: add user_id scoping to all user tables
 - Swap SQLite → Postgres
 - Add proper session management, CORS config, rate limiting
