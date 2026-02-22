@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     # Yahoo OAuth2
     yahoo_client_id: str = ""
     yahoo_client_secret: str = ""
-    yahoo_redirect_uri: str = "http://localhost:3000/auth/yahoo/callback"
+    yahoo_redirect_uri: str = "http://localhost:8000/auth/yahoo/callback"
 
     # Scheduling
     lineup_check_start_hour: int = 14

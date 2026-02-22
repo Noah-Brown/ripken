@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { fetchApi, type GameInfo, type TodayResponse } from "@/lib/api";
 
 function GameCard({ game }: { game: GameInfo }) {
@@ -44,11 +46,18 @@ function GameCard({ game }: { game: GameInfo }) {
 export default function Home() {
   const [data, setData] = useState<TodayResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [yahooConnected, setYahooConnected] = useState<boolean | null>(null);
+  const searchParams = useSearchParams();
+  const justConnected = searchParams.get("yahoo_connected") === "1";
 
   useEffect(() => {
     fetchApi<TodayResponse>("/api/today")
       .then(setData)
       .catch((e) => setError(e.message));
+
+    fetchApi<{ connected: boolean }>("/auth/yahoo/status")
+      .then((res) => setYahooConnected(res.connected))
+      .catch(() => setYahooConnected(false));
   }, []);
 
   return (
@@ -56,12 +65,45 @@ export default function Home() {
       <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
           <h1 className="text-2xl font-bold tracking-tight">Ripken</h1>
-          <span className="text-sm text-zinc-500 dark:text-zinc-400">
-            Fantasy Baseball Dashboard
-          </span>
+          <div className="flex items-center gap-4">
+            {yahooConnected && (
+              <Link
+                href="/roster"
+                className="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"
+              >
+                My Roster
+              </Link>
+            )}
+            <span className="text-sm text-zinc-500 dark:text-zinc-400">
+              Fantasy Baseball Dashboard
+            </span>
+          </div>
         </div>
       </header>
       <main className="mx-auto max-w-5xl px-6 py-8">
+        {/* Yahoo connection status */}
+        {justConnected && (
+          <div className="mb-6 rounded-lg bg-green-50 p-4 text-green-700 dark:bg-green-950 dark:text-green-300">
+            Yahoo account connected successfully! Your leagues and rosters are syncing.
+          </div>
+        )}
+        {yahooConnected === false && (
+          <div className="mb-6 flex items-center justify-between rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <div>
+              <p className="font-medium">Connect Yahoo Fantasy</p>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                Link your Yahoo account to see your roster and league data.
+              </p>
+            </div>
+            <a
+              href="http://localhost:8000/auth/yahoo"
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+            >
+              Connect Yahoo
+            </a>
+          </div>
+        )}
+
         <h2 className="mb-6 text-xl font-semibold">
           Today&apos;s Games{" "}
           {data && (

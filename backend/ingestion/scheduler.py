@@ -87,6 +87,12 @@ async def job_sync_fangraphs_projections():
     await _run_job("sync_fangraphs_projections", sync_fangraphs_projections)
 
 
+async def job_sync_yahoo_rosters():
+    from backend.yahoo.sync import sync_all_rosters
+
+    await _run_job("sync_yahoo_rosters", sync_all_rosters)
+
+
 # ---------------------------------------------------------------------------
 # Scheduler setup
 # ---------------------------------------------------------------------------
@@ -128,6 +134,11 @@ def create_scheduler() -> AsyncIOScheduler:
         hour=0,
         minute=0,
         id="sync_fangraphs_projections",
+    )
+
+    # Yahoo rosters — every 15 minutes
+    scheduler.add_job(
+        job_sync_yahoo_rosters, "interval", minutes=15, id="sync_yahoo_rosters"
     )
 
     return scheduler

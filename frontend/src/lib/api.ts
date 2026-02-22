@@ -37,3 +37,53 @@ export interface TodayResponse {
   date: string;
   games: GameInfo[];
 }
+
+// --- Roster / League types ---
+
+export interface LeagueInfo {
+  id: number;
+  yahoo_league_key: string;
+  name: string;
+  format: string;
+  num_teams: number | null;
+  season: number | null;
+}
+
+export interface LeaguesResponse {
+  leagues: LeagueInfo[];
+}
+
+export interface TodayGameInfo {
+  game_id: number;
+  opponent: string;
+  home_away: "home" | "away";
+  game_time: string | null;
+  status: string;
+  venue: string | null;
+}
+
+export interface RosterPlayer {
+  id: number;
+  full_name: string;
+  team: string | null;
+  position: string | null;
+  status: string | null;
+}
+
+export interface RosterEntry {
+  roster_position: string;
+  yahoo_player_key: string | null;
+  player: RosterPlayer | null;
+  today_game: TodayGameInfo | null;
+  stats: {
+    date: string;
+    stat_type: string;
+    stats: string;
+  } | null;
+}
+
+export interface RosterResponse {
+  league_id: number;
+  date: string;
+  roster: RosterEntry[];
+}

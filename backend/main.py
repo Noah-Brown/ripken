@@ -5,7 +5,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.api.routes.auth import router as auth_router
 from backend.api.routes.dashboard import router as dashboard_router
+from backend.api.routes.roster import router as roster_router
 from backend.database.connection import engine
 from backend.database.models import Base
 from backend.ingestion.scheduler import create_scheduler, run_startup_jobs
@@ -45,7 +47,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)
 app.include_router(dashboard_router)
+app.include_router(roster_router)
 
 
 @app.get("/health")
