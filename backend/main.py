@@ -1,11 +1,19 @@
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.api.routes.dashboard import router as dashboard_router
 from backend.database.connection import engine
 from backend.database.models import Base
-from backend.api.routes.dashboard import router as dashboard_router
+from backend.ingestion.scheduler import create_scheduler, run_startup_jobs
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+)
 
 
 @asynccontextmanager
@@ -13,7 +21,18 @@ async def lifespan(app: FastAPI):
     # Create all tables on startup
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # Start scheduler
+    scheduler = create_scheduler()
+    scheduler.start()
+
+    # Run critical data loads in background so server starts immediately
+    asyncio.create_task(run_startup_jobs())
+
     yield
+
+    # Shutdown
+    scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title="Ripken", description="Fantasy Baseball Dashboard", lifespan=lifespan)
