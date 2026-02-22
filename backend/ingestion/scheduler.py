@@ -93,6 +93,12 @@ async def job_sync_yahoo_rosters():
     await _run_job("sync_yahoo_rosters", sync_all_rosters)
 
 
+async def job_compute_reliever_roles():
+    from backend.analytics.reliever_roles import compute_reliever_roles
+
+    await _run_job("compute_reliever_roles", compute_reliever_roles)
+
+
 # ---------------------------------------------------------------------------
 # Scheduler setup
 # ---------------------------------------------------------------------------
@@ -139,6 +145,15 @@ def create_scheduler() -> AsyncIOScheduler:
     # Yahoo rosters — every 15 minutes
     scheduler.add_job(
         job_sync_yahoo_rosters, "interval", minutes=15, id="sync_yahoo_rosters"
+    )
+
+    # Reliever role classification — nightly at 4 AM ET (after game results)
+    scheduler.add_job(
+        job_compute_reliever_roles,
+        "cron",
+        hour=4,
+        minute=0,
+        id="compute_reliever_roles",
     )
 
     return scheduler

@@ -6,8 +6,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.routes.auth import router as auth_router
+from backend.api.routes.bullpen import router as bullpen_router
 from backend.api.routes.dashboard import router as dashboard_router
+from backend.api.routes.lineups import router as lineups_router
+from backend.api.routes.pitching import router as pitching_router
 from backend.api.routes.roster import router as roster_router
+from backend.api.routes.waivers import router as waivers_router
 from backend.database.connection import engine
 from backend.database.models import Base
 from backend.ingestion.scheduler import create_scheduler, run_startup_jobs
@@ -48,8 +52,12 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(bullpen_router)
 app.include_router(dashboard_router)
+app.include_router(lineups_router)
+app.include_router(pitching_router)
 app.include_router(roster_router)
+app.include_router(waivers_router)
 
 
 @app.get("/health")
