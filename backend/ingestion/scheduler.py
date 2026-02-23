@@ -99,6 +99,12 @@ async def job_compute_reliever_roles():
     await _run_job("compute_reliever_roles", compute_reliever_roles)
 
 
+async def job_generate_alerts():
+    from backend.analytics.alerts import generate_alerts
+
+    await _run_job("generate_alerts", generate_alerts)
+
+
 # ---------------------------------------------------------------------------
 # Scheduler setup
 # ---------------------------------------------------------------------------
@@ -154,6 +160,11 @@ def create_scheduler() -> AsyncIOScheduler:
         hour=4,
         minute=0,
         id="compute_reliever_roles",
+    )
+
+    # Alert generation — every 30 minutes (after transaction/roster syncs)
+    scheduler.add_job(
+        job_generate_alerts, "interval", minutes=30, id="generate_alerts"
     )
 
     return scheduler

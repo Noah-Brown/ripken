@@ -34,7 +34,7 @@ async def get_leagues(db: AsyncSession = Depends(get_db_session)):
 
 @router.get("/roster/{league_id}")
 async def get_roster(league_id: int, db: AsyncSession = Depends(get_db_session)):
-    """Roster for a league, enriched with today's game and stats."""
+    """Roster for a league, enriched with today's game, stats, and start/sit scores."""
     today = date.today().isoformat()
 
     # Get roster entries with player data
@@ -90,6 +90,13 @@ async def get_roster(league_id: int, db: AsyncSession = Depends(get_db_session))
                     "stats": stat.stats,
                 }
 
+    # Compute start/sit scores for hitters
+    start_sit_map: dict[int, dict] = {}
+    if player_ids:
+        from backend.analytics.start_sit import compute_start_sit_scores
+
+        start_sit_map = await compute_start_sit_scores(db, player_ids)
+
     for roster_entry, player in rows:
         entry: dict = {
             "roster_position": roster_entry.roster_position,
@@ -97,6 +104,7 @@ async def get_roster(league_id: int, db: AsyncSession = Depends(get_db_session))
             "player": None,
             "today_game": None,
             "stats": None,
+            "start_sit": None,
         }
 
         if player:
@@ -114,6 +122,10 @@ async def get_roster(league_id: int, db: AsyncSession = Depends(get_db_session))
             # Latest stats
             if player.id in stats_map:
                 entry["stats"] = stats_map[player.id]
+
+            # Start/sit recommendation
+            if player.id in start_sit_map:
+                entry["start_sit"] = start_sit_map[player.id]
 
         roster_entries.append(entry)
 

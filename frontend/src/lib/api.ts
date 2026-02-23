@@ -70,6 +70,12 @@ export interface RosterPlayer {
   status: string | null;
 }
 
+export interface StartSitScore {
+  score: number | null;
+  label: string;
+  factors: Record<string, number>;
+}
+
 export interface RosterEntry {
   roster_position: string;
   yahoo_player_key: string | null;
@@ -80,6 +86,7 @@ export interface RosterEntry {
     stat_type: string;
     stats: string;
   } | null;
+  start_sit: StartSitScore | null;
 }
 
 export interface RosterResponse {

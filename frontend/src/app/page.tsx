@@ -5,6 +5,75 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { fetchApi, type GameInfo, type TodayResponse } from "@/lib/api";
 
+interface AlertItem {
+  id: number;
+  player_id: number | null;
+  alert_type: string;
+  message: string;
+  is_read: boolean;
+  created_at: string | null;
+}
+
+interface AlertsResponse {
+  alerts: AlertItem[];
+  unread_count: number;
+}
+
+const alertTypeIcon: Record<string, string> = {
+  callup: "↑",
+  il_move: "🏥",
+  role_change: "↔",
+  lineup_posted: "✓",
+  unexpected_bench: "⚠",
+  dropped_in_league: "↓",
+  hot_streak: "🔥",
+};
+
+function AlertFeed({ alerts, onDismiss }: { alerts: AlertItem[]; onDismiss: (id: number) => void }) {
+  if (alerts.length === 0) return null;
+
+  return (
+    <div className="mb-6">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+          Alerts
+        </h3>
+      </div>
+      <div className="space-y-2">
+        {alerts.map((alert) => (
+          <div
+            key={alert.id}
+            className="flex items-start justify-between rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900"
+          >
+            <div className="flex items-start gap-3">
+              <span className="text-sm">{alertTypeIcon[alert.alert_type] ?? "•"}</span>
+              <div>
+                <p className="text-sm">{alert.message}</p>
+                {alert.created_at && (
+                  <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
+                    {new Date(alert.created_at).toLocaleString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={() => onDismiss(alert.id)}
+              className="ml-2 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function GameCard({ game }: { game: GameInfo }) {
   const away = game.probable_pitchers.away;
   const home = game.probable_pitchers.home;
@@ -47,6 +116,8 @@ export default function Home() {
   const [data, setData] = useState<TodayResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [yahooConnected, setYahooConnected] = useState<boolean | null>(null);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const searchParams = useSearchParams();
   const justConnected = searchParams.get("yahoo_connected") === "1";
 
@@ -58,7 +129,25 @@ export default function Home() {
     fetchApi<{ connected: boolean }>("/auth/yahoo/status")
       .then((res) => setYahooConnected(res.connected))
       .catch(() => setYahooConnected(false));
+
+    fetchApi<AlertsResponse>("/api/alerts?unread_only=true&limit=10")
+      .then((res) => {
+        setAlerts(res.alerts);
+        setUnreadCount(res.unread_count);
+      })
+      .catch(() => {});
   }, []);
+
+  const dismissAlert = async (id: number) => {
+    try {
+      await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/alerts/${id}/read`,
+        { method: "POST" }
+      );
+      setAlerts((prev) => prev.filter((a) => a.id !== id));
+      setUnreadCount((c) => Math.max(0, c - 1));
+    } catch {}
+  };
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
@@ -66,13 +155,31 @@ export default function Home() {
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
           <h1 className="text-2xl font-bold tracking-tight">Ripken</h1>
           <div className="flex items-center gap-4">
+            {unreadCount > 0 && (
+              <span className="relative flex items-center">
+                <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white">
+                  {unreadCount}
+                </span>
+              </span>
+            )}
             {yahooConnected && (
-              <Link
-                href="/roster"
-                className="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"
-              >
-                My Roster
-              </Link>
+              <>
+                <Link href="/roster" className="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300">
+                  Roster
+                </Link>
+                <Link href="/lineups" className="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
+                  Lineups
+                </Link>
+                <Link href="/pitching" className="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
+                  Pitching
+                </Link>
+                <Link href="/bullpen" className="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
+                  Bullpen
+                </Link>
+                <Link href="/prospects" className="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
+                  Prospects
+                </Link>
+              </>
             )}
             <span className="text-sm text-zinc-500 dark:text-zinc-400">
               Fantasy Baseball Dashboard
@@ -103,6 +210,9 @@ export default function Home() {
             </a>
           </div>
         )}
+
+        {/* Alert Feed */}
+        <AlertFeed alerts={alerts} onDismiss={dismissAlert} />
 
         <h2 className="mb-6 text-xl font-semibold">
           Today&apos;s Games{" "}

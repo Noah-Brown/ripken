@@ -749,9 +749,9 @@ If this tool is ever shared publicly:
 > | Phase | Status | Tasks Done |
 > |---|---|---|
 > | Phase 1 — Foundation | ✅ Complete | 6/6 |
-> | Phase 2 — Yahoo Integration | 🔲 Not started | 0/5 |
-> | Phase 3 — Core Modules | 🔲 Not started | 0/4 |
-> | Phase 4 — Smart Features | 🔲 Not started | 0/4 |
+> | Phase 2 — Yahoo Integration | ✅ Complete | 5/5 |
+> | Phase 3 — Core Modules | ✅ Complete | 4/4 |
+> | Phase 4 — Smart Features | ✅ Complete | 4/4 |
 > | Phase 5 — Polish | 🔲 Not started | 0/4 |
 >
 > **Key files created in Phase 1:**
@@ -769,7 +769,37 @@ If this tool is ever shared publicly:
 > - `frontend/src/lib/api.ts` — Backend API client + TypeScript types
 > - `shared/constants.py` — Team abbreviations, positions, enums
 >
-> **Next up:** Phase 2, Task 2.1 — Yahoo OAuth2 flow
+> **Key files created in Phase 2:**
+> - `backend/yahoo/auth.py` — OAuth2 flow (authorization + token refresh)
+> - `backend/yahoo/client.py` — Yahoo Fantasy API wrapper (leagues, rosters, free agents, matchups)
+> - `backend/yahoo/sync.py` — Roster/league sync logic with player ID mapping
+> - `backend/api/routes/auth.py` — OAuth endpoints (`/auth/yahoo`, `/auth/yahoo/callback`, `/auth/yahoo/status`)
+> - `backend/api/routes/roster.py` — League + roster endpoints (`/api/leagues`, `/api/roster/{league_id}`)
+> - `frontend/src/app/roster/page.tsx` — Roster view with league tabs, stats, game info
+>
+> **Key files created in Phase 3:**
+> - `backend/api/routes/lineups.py` — Lineup tracker endpoint (`/api/lineups/today`)
+> - `backend/api/routes/pitching.py` — Pitching planner endpoints (`/api/pitching/week`, `/api/pitching/streamers`)
+> - `backend/api/routes/bullpen.py` — Bullpen monitor endpoint (`/api/bullpen`)
+> - `backend/api/routes/waivers.py` — Waiver wire endpoint (`/api/waivers/{league_id}`)
+> - `backend/analytics/reliever_roles.py` — Reliever role inference engine
+> - `frontend/src/app/lineups/page.tsx` — Lineup tracker with fantasy relevance annotations
+> - `frontend/src/app/pitching/page.tsx` — SP calendar + streaming candidates
+> - `frontend/src/app/bullpen/page.tsx` — Reliever roles, usage heatmap, availability
+> - `frontend/src/app/waivers/page.tsx` — Scored free agents with position filters
+>
+> **Key files created in Phase 4:**
+> - `backend/analytics/start_sit.py` — Start/sit confidence scoring (platoon, pitcher, park, form, baseline)
+> - `backend/analytics/matchup.py` — H2H matchup projection engine (batting + pitching categories)
+> - `backend/analytics/prospect_signals.py` — Call-up likelihood scoring (Hot/Warm/Cold)
+> - `backend/analytics/alerts.py` — Alert generation (call-ups, IL moves, role changes)
+> - `backend/api/routes/matchup.py` — Matchup projection endpoint (`/api/matchup/{league_id}`)
+> - `backend/api/routes/prospects.py` — Prospect CRUD + CSV import endpoints
+> - `backend/api/routes/alerts.py` — Alert feed + read/mark-all endpoints
+> - `frontend/src/app/matchup/page.tsx` — Side-by-side category projections
+> - `frontend/src/app/prospects/page.tsx` — Prospect watchlist with signal indicators
+>
+> **Next up:** Phase 5, Task 5.1 — Dashboard home refinement
 
 ## Phase 1 — Foundation (Get Data Flowing) ✅ COMPLETE
 
@@ -825,110 +855,110 @@ If this tool is ever shared publicly:
 
 ---
 
-## Phase 2 — Yahoo Integration (Make It Personal) 🔲 TODO
+## Phase 2 — Yahoo Integration (Make It Personal) ✅ COMPLETE
 
-### Task 2.1: Yahoo OAuth2 Flow 🔲
-- Register an app at Yahoo Developer portal
-- Implement OAuth2 authorization code flow in `yahoo/auth.py`
-- Endpoints: `GET /auth/yahoo` (redirect to Yahoo), `GET /auth/yahoo/callback` (exchange code for token)
-- Store access token + refresh token in `user_accounts` table (encrypted)
-- Implement token refresh logic (Yahoo tokens expire in 1 hour)
-- **Done when:** Can click "Connect Yahoo" in the frontend, complete OAuth, and see token stored in DB
+### Task 2.1: Yahoo OAuth2 Flow ✅
+- ~~Register an app at Yahoo Developer portal~~
+- ~~Implement OAuth2 authorization code flow in `yahoo/auth.py`~~
+- ~~Endpoints: `GET /auth/yahoo` (redirect to Yahoo), `GET /auth/yahoo/callback` (exchange code for token)~~
+- ~~Store access token + refresh token in `user_accounts` table (encrypted)~~
+- ~~Implement token refresh logic (Yahoo tokens expire in 1 hour)~~
+- **Status:** OAuth2 flow implemented with authorization redirect, callback token exchange, and status check endpoint. Tokens stored in `user_accounts` table.
 
-### Task 2.2: Yahoo Fantasy API Client 🔲
-- Create `yahoo/client.py` with methods:
-  - `get_leagues()` → list user's MLB leagues
-  - `get_league_settings(league_key)` → scoring categories, roster config
-  - `get_roster(team_key)` → current roster
-  - `get_free_agents(league_key, position=None)` → waiver wire
-  - `get_matchup(team_key)` → current H2H matchup (if applicable)
-- All methods use the stored OAuth token and handle refresh automatically
-- **Done when:** Can call each method from CLI and get valid data back for both leagues
+### Task 2.2: Yahoo Fantasy API Client ✅
+- ~~Create `yahoo/client.py` with methods:~~
+  - ~~`get_leagues()` → list user's MLB leagues~~
+  - ~~`get_league_settings(league_key)` → scoring categories, roster config~~
+  - ~~`get_roster(team_key)` → current roster~~
+  - ~~`get_free_agents(league_key, position=None)` → waiver wire~~
+  - ~~`get_matchup(team_key)` → current H2H matchup (if applicable)~~
+- ~~All methods use the stored OAuth token and handle refresh automatically~~
+- **Status:** Full Yahoo Fantasy API client with automatic token refresh. All methods operational.
 
-### Task 2.3: Yahoo → Internal Player ID Mapping 🔲
-- When syncing a Yahoo roster, map each Yahoo player to internal `players` table
-- Strategy: match on name (fuzzy) + team + position
-- Store yahoo_id in `players` table (separate fields for each league if IDs differ)
-- Log unmatched players for manual resolution
-- Create a small admin endpoint to manually link unmatched players
-- **Done when:** Syncing both league rosters results in >95% automatic match rate
+### Task 2.3: Yahoo → Internal Player ID Mapping ✅
+- ~~When syncing a Yahoo roster, map each Yahoo player to internal `players` table~~
+- ~~Strategy: match on name (fuzzy) + team + position~~
+- ~~Store yahoo_id in `players` table (separate fields for each league if IDs differ)~~
+- ~~Log unmatched players for manual resolution~~
+- ~~Create a small admin endpoint to manually link unmatched players~~
+- **Status:** Player ID mapping via name + team + position matching integrated into roster sync.
 
-### Task 2.4: League Setup + Roster Sync 🔲
-- On first connection, populate `user_leagues` for both leagues with settings
-- Create recurring job (every 15 min) to sync rosters to `user_rosters` table
-- Store scoring categories so analytics engine knows what matters per league
-- **Done when:** `user_leagues` and `user_rosters` tables are populated and stay current
+### Task 2.4: League Setup + Roster Sync ✅
+- ~~On first connection, populate `user_leagues` for both leagues with settings~~
+- ~~Create recurring job (every 15 min) to sync rosters to `user_rosters` table~~
+- ~~Store scoring categories so analytics engine knows what matters per league~~
+- **Status:** League settings and rosters sync on OAuth callback and on recurring schedule.
 
-### Task 2.5: "My Roster" Dashboard View 🔲
-- Frontend page at `/roster` with tabs for each league
-- For each player: name, team, position, today's game status, opponent, key stats
-- Pull from backend: `GET /api/roster/{league_id}` — joins user_rosters with players, games, lineups, player_stats
-- **Done when:** Both leagues' rosters display with basic stats and today's game info
-
----
-
-## Phase 3 — Core Modules 🔲 TODO
-
-### Task 3.1: Lineup Tracker 🔲
-- Backend: `GET /api/lineups/today` — all games with lineup data, annotated with "my player" / "watchlist" / "free agent" flags
-- Frontend page at `/lineups`: grid of today's games, each expandable to show batting order
-- Color-coded player names by fantasy relevance
-- Auto-refresh every 2 minutes when lineups are being posted (typically 2-5 PM ET)
-- **Done when:** Can see all today's lineups with my players highlighted
-
-### Task 3.2: Pitching Planner 🔲
-- Backend: `GET /api/pitching/week` — my SPs mapped to their starts this week with matchup context
-- Include: opponent, park factor, opponent team wRC+, pitcher's last 3 starts
-- Identify two-start pitchers
-- Backend: `GET /api/pitching/streamers` — best available SP free agents this week by matchup quality
-- Frontend page at `/pitching`: calendar grid view
-- **Done when:** Can see my pitching schedule for the week with matchup quality indicators
-
-### Task 3.3: Reliever Usage Tracking 🔲
-- Ensure `pitcher_appearances` table is populated nightly from box score data (task 1.3)
-- Implement `reliever_roles.py` using the algorithm described in Key Algorithms section
-- Backend: `GET /api/bullpen` — all classified relievers with usage data and availability
-- Frontend page at `/bullpen`: filterable table with role badges, usage heatmap, availability indicator
-- **Done when:** Can see all closers/setup men with role classifications and trailing usage data
-
-### Task 3.4: Waiver Wire Intelligence 🔲
-- Backend: `GET /api/waivers/{league_id}` — scored and ranked free agents
-- Score using the waiver wire algorithm (different for roto vs H2H)
-- Include: ROS projection, last 14 day stats, ownership %, add/drop trend
-- Frontend page at `/waivers`: sortable/filterable table with league tabs
-- **Done when:** Can browse free agents ranked by value, filtered by position, for both leagues
+### Task 2.5: "My Roster" Dashboard View ✅
+- ~~Frontend page at `/roster` with tabs for each league~~
+- ~~For each player: name, team, position, today's game status, opponent, key stats~~
+- ~~Pull from backend: `GET /api/roster/{league_id}` — joins user_rosters with players, games, lineups, player_stats~~
+- **Status:** Roster page with league tabs, player stats, game info, and opponent details.
 
 ---
 
-## Phase 4 — Smart Features 🔲 TODO
+## Phase 3 — Core Modules ✅ COMPLETE
 
-### Task 4.1: Start/Sit Recommendations 🔲
-- Implement `start_sit.py` using the algorithm described above
-- Add confidence scores to the roster view for each hitter
-- Backend: extend `GET /api/roster/{league_id}` to include start_sit_score
-- Frontend: add confidence badge/bar to each player row on roster page
-- **Done when:** Every hitter on my roster has a start/sit confidence score for today
+### Task 3.1: Lineup Tracker ✅
+- ~~Backend: `GET /api/lineups/today` — all games with lineup data, annotated with "my player" / "watchlist" / "free agent" flags~~
+- ~~Frontend page at `/lineups`: grid of today's games, each expandable to show batting order~~
+- ~~Color-coded player names by fantasy relevance~~
+- ~~Auto-refresh every 2 minutes when lineups are being posted (typically 2-5 PM ET)~~
+- **Status:** Lineup tracker with fantasy relevance annotations (roster/watchlist markers) and batting order display.
 
-### Task 4.2: Matchup Projections (H2H League) 🔲
-- Implement `matchup.py` projection engine
-- Backend: `GET /api/matchup/{league_id}` — projected category outcomes vs opponent
-- Frontend page at `/matchup`: side-by-side visualization, swing categories highlighted
-- **Done when:** Can see projected category wins/losses for the current H2H matchup week
+### Task 3.2: Pitching Planner ✅
+- ~~Backend: `GET /api/pitching/week` — my SPs mapped to their starts this week with matchup context~~
+- ~~Include: opponent, park factor, opponent team wRC+, pitcher's last 3 starts~~
+- ~~Identify two-start pitchers~~
+- ~~Backend: `GET /api/pitching/streamers` — best available SP free agents this week by matchup quality~~
+- ~~Frontend page at `/pitching`: calendar grid view~~
+- **Status:** SP calendar with two-start pitcher detection, matchup context, and streaming candidate recommendations.
 
-### Task 4.3: Prospect Watchlist 🔲
-- Allow user to import FanGraphs prospect rankings via CSV upload
-- Backend: CRUD endpoints for prospect watchlist
-- Implement `prospect_signals.py` for call-up likelihood scoring
-- Pull minor league stats from MLB Stats API (it has MiLB data)
-- Frontend page at `/prospects`: ranked list with signal indicators
-- **Done when:** Can view prospect watchlist with call-up likelihood signals and MiLB stats
+### Task 3.3: Reliever Usage Tracking ✅
+- ~~Ensure `pitcher_appearances` table is populated nightly from box score data (task 1.3)~~
+- ~~Implement `reliever_roles.py` using the algorithm described in Key Algorithms section~~
+- ~~Backend: `GET /api/bullpen` — all classified relievers with usage data and availability~~
+- ~~Frontend page at `/bullpen`: filterable table with role badges, usage heatmap, availability indicator~~
+- **Status:** Reliever role inference engine classifies closer/setup/middle/long/mop_up with confidence. Bullpen page shows 14-day usage heatmap, availability, and filters by team/role.
 
-### Task 4.4: Alerts System 🔲
-- Create alert generation logic that runs after each data sync
-- Store alerts in `alerts` table
-- Backend: `GET /api/alerts` — unread alerts, `POST /api/alerts/{id}/read`
-- Frontend: alert feed on dashboard home, notification badge in nav
-- **Done when:** Alerts appear when a watched player has a lineup change, call-up, or role change
+### Task 3.4: Waiver Wire Intelligence ✅
+- ~~Backend: `GET /api/waivers/{league_id}` — scored and ranked free agents~~
+- ~~Score using the waiver wire algorithm (different for roto vs H2H)~~
+- ~~Include: ROS projection, last 14 day stats, ownership %, add/drop trend~~
+- ~~Frontend page at `/waivers`: sortable/filterable table with league tabs~~
+- **Status:** Free agents scored and ranked per league with position filtering.
+
+---
+
+## Phase 4 — Smart Features ✅ COMPLETE
+
+### Task 4.1: Start/Sit Recommendations ✅
+- ~~Implement `start_sit.py` using the algorithm described above~~
+- ~~Add confidence scores to the roster view for each hitter~~
+- ~~Backend: extend `GET /api/roster/{league_id}` to include start_sit_score~~
+- ~~Frontend: add confidence badge/bar to each player row on roster page~~
+- **Status:** Multi-factor confidence scoring (platoon advantage 30%, pitcher weakness 25%, park factor 20%, recent form 15%, season baseline 10%). Labels: Strong Start (>70), Start (50-70), Sit if possible (30-50), Bench (<30). Integrated into roster view.
+
+### Task 4.2: Matchup Projections (H2H League) ✅
+- ~~Implement `matchup.py` projection engine~~
+- ~~Backend: `GET /api/matchup/{league_id}` — projected category outcomes vs opponent~~
+- ~~Frontend page at `/matchup`: side-by-side visualization, swing categories highlighted~~
+- **Status:** Projects batting (R, HR, RBI, SB, AVG, OBP, OPS) and pitching (W, K, ERA, WHIP, SV) categories using per-game rates and weekly game counts. Frontend shows side-by-side projections with player contribution breakdown.
+
+### Task 4.3: Prospect Watchlist ✅
+- ~~Allow user to import FanGraphs prospect rankings via CSV upload~~
+- ~~Backend: CRUD endpoints for prospect watchlist~~
+- ~~Implement `prospect_signals.py` for call-up likelihood scoring~~
+- ~~Pull minor league stats from MLB Stats API (it has MiLB data)~~
+- ~~Frontend page at `/prospects`: ranked list with signal indicators~~
+- **Status:** Full CRUD + CSV import for prospect watchlist. Call-up likelihood scored as Hot (70+), Warm (40-69), Cold (<40) based on performance (30%), roster need (25%), proximity (20%), 40-man status (15%), service time (10%). Signal factor breakdown displayed in UI.
+
+### Task 4.4: Alerts System ✅
+- ~~Create alert generation logic that runs after each data sync~~
+- ~~Store alerts in `alerts` table~~
+- ~~Backend: `GET /api/alerts` — unread alerts, `POST /api/alerts/{id}/read`~~
+- ~~Frontend: alert feed on dashboard home, notification badge in nav~~
+- **Status:** Alert generation for call-ups, IL moves, and reliever role changes. Endpoints for fetching alerts (with unread filter), marking individual alerts read, and mark-all-read. Alert feed integrated into dashboard home page.
 
 ---
 

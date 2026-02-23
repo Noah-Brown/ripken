@@ -8,6 +8,7 @@ import {
   type LeaguesResponse,
   type RosterEntry,
   type RosterResponse,
+  type StartSitScore,
 } from "@/lib/api";
 
 const IL_POSITIONS = new Set(["IL", "IL+", "IL10", "IL15", "IL60", "DL", "NA"]);
@@ -53,12 +54,49 @@ function GameBadge({ entry }: { entry: RosterEntry }) {
   );
 }
 
+function StartSitBadge({ data }: { data: StartSitScore | null }) {
+  if (!data || data.score === null) return null;
+
+  const score = data.score;
+  let bg: string;
+  let text: string;
+
+  if (score > 70) {
+    bg = "bg-green-100 dark:bg-green-950";
+    text = "text-green-700 dark:text-green-300";
+  } else if (score > 50) {
+    bg = "bg-emerald-50 dark:bg-emerald-950/50";
+    text = "text-emerald-600 dark:text-emerald-400";
+  } else if (score > 30) {
+    bg = "bg-amber-50 dark:bg-amber-950/50";
+    text = "text-amber-600 dark:text-amber-400";
+  } else {
+    bg = "bg-red-50 dark:bg-red-950/50";
+    text = "text-red-600 dark:text-red-400";
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
+        <span className={`rounded px-1.5 py-0.5 text-xs font-bold ${bg} ${text}`}>
+          {score}
+        </span>
+        <span className={`text-xs font-medium ${text}`}>
+          {data.label}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function RosterSection({
   title,
   entries,
+  showStartSit,
 }: {
   title: string;
   entries: RosterEntry[];
+  showStartSit: boolean;
 }) {
   if (entries.length === 0) return null;
 
@@ -83,6 +121,11 @@ function RosterSection({
               <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
                 Today
               </th>
+              {showStartSit && (
+                <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
+                  Confidence
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -127,6 +170,11 @@ function RosterSection({
                   <td className="px-3 py-2">
                     <GameBadge entry={entry} />
                   </td>
+                  {showStartSit && (
+                    <td className="px-3 py-2">
+                      <StartSitBadge data={entry.start_sit} />
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -200,12 +248,11 @@ export default function RosterPage() {
             <span className="text-sm text-zinc-400 dark:text-zinc-500">/</span>
             <span className="text-sm font-medium">My Roster</span>
           </div>
-          <Link
-            href="/"
-            className="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-          >
-            Today&apos;s Games
-          </Link>
+          <nav className="flex items-center gap-4 text-sm">
+            <Link href="/lineups" className="text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">Lineups</Link>
+            <Link href="/pitching" className="text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">Pitching</Link>
+            <Link href="/matchup" className="text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">Matchup</Link>
+          </nav>
         </div>
       </header>
 
@@ -260,9 +307,9 @@ export default function RosterPage() {
 
         {!loading && roster.length > 0 && (
           <>
-            <RosterSection title="Starting Lineup" entries={starters} />
-            <RosterSection title="Bench" entries={bench} />
-            <RosterSection title="Injured List" entries={il} />
+            <RosterSection title="Starting Lineup" entries={starters} showStartSit={true} />
+            <RosterSection title="Bench" entries={bench} showStartSit={true} />
+            <RosterSection title="Injured List" entries={il} showStartSit={false} />
           </>
         )}
       </main>

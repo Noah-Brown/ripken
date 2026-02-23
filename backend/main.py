@@ -5,11 +5,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.api.routes.alerts import router as alerts_router
 from backend.api.routes.auth import router as auth_router
 from backend.api.routes.bullpen import router as bullpen_router
 from backend.api.routes.dashboard import router as dashboard_router
 from backend.api.routes.lineups import router as lineups_router
+from backend.api.routes.matchup import router as matchup_router
 from backend.api.routes.pitching import router as pitching_router
+from backend.api.routes.prospects import router as prospects_router
 from backend.api.routes.roster import router as roster_router
 from backend.api.routes.waivers import router as waivers_router
 from backend.database.connection import engine
@@ -51,11 +54,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(alerts_router)
 app.include_router(auth_router)
 app.include_router(bullpen_router)
 app.include_router(dashboard_router)
 app.include_router(lineups_router)
+app.include_router(matchup_router)
 app.include_router(pitching_router)
+app.include_router(prospects_router)
 app.include_router(roster_router)
 app.include_router(waivers_router)
 
