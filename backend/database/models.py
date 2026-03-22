@@ -167,6 +167,19 @@ class Transaction(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class ProspectBuzz(Base):
+    __tablename__ = "prospect_buzz"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    player_id = Column(Integer, ForeignKey("players.id"), nullable=False)
+    source = Column(Text, nullable=False)  # e.g. "mlb.com", "espn", "baseballamerica"
+    title = Column(Text, nullable=False)
+    url = Column(Text, nullable=False, unique=True)
+    snippet = Column(Text)
+    published_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class Prospect(Base):
     __tablename__ = "prospects"
     __table_args__ = (

@@ -1,17 +1,18 @@
 """Prospect call-up likelihood scoring.
 
 Scores watched prospects on how likely they are to be called up soon
-based on performance, roster need, proximity, 40-man status, and service time.
+based on performance, roster need, proximity, 40-man status, service time,
+and media buzz (news reports suggesting an imminent call-up).
 """
 
 import json
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.database.models import Player, Prospect, Transaction
+from backend.database.models import Player, Prospect, ProspectBuzz, Transaction
 
 logger = logging.getLogger(__name__)
 
@@ -49,15 +50,20 @@ async def compute_prospect_signals(db: AsyncSession) -> list[dict]:
     recent_txns = await _load_recent_callups(db)
     callup_orgs = {t["to_team"] for t in recent_txns if t.get("to_team")}
 
+    # Load recent buzz counts per player for scoring
+    buzz_counts = await _load_buzz_counts(db)
+    # Load recent buzz items per player for display
+    buzz_items = await _load_recent_buzz(db)
+
     scored = []
     for prospect, player in prospect_rows:
-        # 1. Performance score (30%)
+        # 1. Performance score (25%)
         performance = _score_performance(prospect)
 
-        # 2. Roster need score (25%)
+        # 2. Roster need score (20%)
         roster_need = _score_roster_need(prospect, player)
 
-        # 3. Proximity score (20%)
+        # 3. Proximity score (15%)
         proximity = _score_proximity(prospect)
 
         # 4. 40-man status (15%)
@@ -66,13 +72,17 @@ async def compute_prospect_signals(db: AsyncSession) -> list[dict]:
         # 5. Service time factor (10%)
         service_time = _score_service_time()
 
+        # 6. Media buzz factor (15%)
+        buzz = _score_buzz(buzz_counts.get(player.id, 0))
+
         # Weighted composite
         raw_score = (
-            0.30 * performance
-            + 0.25 * roster_need
-            + 0.20 * proximity
+            0.25 * performance
+            + 0.20 * roster_need
+            + 0.15 * proximity
             + 0.15 * forty_man
             + 0.10 * service_time
+            + 0.15 * buzz
         )
         signal_score = max(0, min(100, int(raw_score)))
 
@@ -90,6 +100,8 @@ async def compute_prospect_signals(db: AsyncSession) -> list[dict]:
                 minor_league_stats = json.loads(prospect.minor_league_stats)
             except (json.JSONDecodeError, TypeError):
                 pass
+
+        player_buzz = buzz_items.get(player.id, [])
 
         scored.append({
             "prospect_id": prospect.id,
@@ -112,7 +124,9 @@ async def compute_prospect_signals(db: AsyncSession) -> list[dict]:
                 "proximity": round(proximity, 1),
                 "forty_man": round(forty_man, 1),
                 "service_time": round(service_time, 1),
+                "buzz": round(buzz, 1),
             },
+            "buzz": player_buzz,
         })
 
     scored.sort(key=lambda x: x["signal_score"], reverse=True)
@@ -198,6 +212,53 @@ def _score_service_time() -> float:
     if today.month >= 4:
         return 40.0  # Pre-Super 2, teams may wait
     return 30.0  # Spring training / early season
+
+
+def _score_buzz(article_count: int) -> float:
+    """Score based on recent media buzz about a prospect's call-up.
+
+    More articles mentioning a prospect in call-up context = higher score.
+    """
+    if article_count >= 4:
+        return 95.0  # Heavy buzz — multiple sources reporting
+    if article_count >= 2:
+        return 80.0  # Moderate buzz — a couple of reports
+    if article_count >= 1:
+        return 60.0  # Some buzz — at least one report
+    return 10.0  # No buzz
+
+
+async def _load_buzz_counts(db: AsyncSession) -> dict[int, int]:
+    """Load count of recent buzz articles per player (last 14 days)."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=14)
+    result = await db.execute(
+        select(ProspectBuzz.player_id, func.count(ProspectBuzz.id))
+        .where(ProspectBuzz.created_at >= cutoff)
+        .group_by(ProspectBuzz.player_id)
+    )
+    return {row[0]: row[1] for row in result.all()}
+
+
+async def _load_recent_buzz(db: AsyncSession) -> dict[int, list[dict]]:
+    """Load recent buzz items per player for display (last 14 days, max 5 each)."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=14)
+    result = await db.execute(
+        select(ProspectBuzz)
+        .where(ProspectBuzz.created_at >= cutoff)
+        .order_by(ProspectBuzz.created_at.desc())
+    )
+    buzz_by_player: dict[int, list[dict]] = {}
+    for b in result.scalars().all():
+        items = buzz_by_player.setdefault(b.player_id, [])
+        if len(items) < 5:
+            items.append({
+                "source": b.source,
+                "title": b.title,
+                "url": b.url,
+                "snippet": b.snippet,
+                "published_at": b.published_at.isoformat() if b.published_at else None,
+            })
+    return buzz_by_player
 
 
 async def _load_recent_callups(db: AsyncSession) -> list[dict]:

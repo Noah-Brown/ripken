@@ -99,6 +99,12 @@ async def job_compute_reliever_roles():
     await _run_job("compute_reliever_roles", compute_reliever_roles)
 
 
+async def job_fetch_prospect_buzz():
+    from backend.ingestion.prospect_buzz import fetch_prospect_buzz
+
+    await _run_job("fetch_prospect_buzz", fetch_prospect_buzz)
+
+
 async def job_generate_alerts():
     from backend.analytics.alerts import generate_alerts
 
@@ -160,6 +166,11 @@ def create_scheduler() -> AsyncIOScheduler:
         hour=4,
         minute=0,
         id="compute_reliever_roles",
+    )
+
+    # Prospect call-up buzz — every 4 hours
+    scheduler.add_job(
+        job_fetch_prospect_buzz, "interval", hours=4, id="fetch_prospect_buzz"
     )
 
     # Alert generation — every 30 minutes (after transaction/roster syncs)
