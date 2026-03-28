@@ -175,6 +175,82 @@ async def sync_fangraphs_projections(db: AsyncSession) -> None:
     print("FanGraphs projections sync complete.")
 
 
+async def sync_projections_from_csv(db: AsyncSession) -> None:
+    """Load ROS projections from local CSV files in data/projections/."""
+    import os
+
+    today = date.today().isoformat()
+    base_dir = os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "data", "projections")
+    )
+
+    # Build both ID maps for matching
+    fg_id_map = await _build_fg_id_map(db)
+
+    result = await db.execute(
+        select(Player.id, Player.mlb_id).where(Player.mlb_id.isnot(None))
+    )
+    mlb_id_map = {row.mlb_id: row.id for row in result.all()}
+
+    for csv_name, stat_type in [
+        ("batting.csv", "projections_batting"),
+        ("pitching.csv", "projections_pitching"),
+    ]:
+        path = os.path.join(base_dir, csv_name)
+        if not os.path.exists(path):
+            print(f"  Skipping {csv_name} — file not found at {path}")
+            continue
+
+        df = pd.read_csv(path)
+        print(f"  Loaded {len(df)} rows from {csv_name}")
+
+        count = 0
+        for _, row in df.iterrows():
+            player_id = None
+
+            # Try MLBAMID -> mlb_id first
+            mlbam = row.get("MLBAMID")
+            if pd.notna(mlbam):
+                player_id = mlb_id_map.get(int(mlbam))
+
+            # Fallback: PlayerId -> fangraphs_id
+            if player_id is None:
+                fg_id = row.get("playerid") or row.get("PlayerId")
+                if fg_id is not None and pd.notna(fg_id):
+                    try:
+                        player_id = fg_id_map.get(int(fg_id))
+                    except (ValueError, TypeError):
+                        pass
+
+            if player_id is None:
+                continue
+
+            stats_dict = {
+                k: (None if pd.isna(v) else v)
+                for k, v in row.to_dict().items()
+                if k not in ("playerid", "PlayerId", "MLBAMID")
+            }
+
+            stmt = sqlite_insert(PlayerStats).values(
+                player_id=player_id,
+                date=today,
+                source="fangraphs",
+                stat_type=stat_type,
+                stats=json.dumps(stats_dict),
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["player_id", "date", "source", "stat_type"],
+                set_={"stats": stmt.excluded.stats},
+            )
+            await db.execute(stmt)
+            count += 1
+
+        await db.commit()
+        print(f"  Stored {count} {stat_type} projection rows")
+
+    print("CSV projections import complete.")
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -183,7 +259,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--action",
-        choices=["stats", "projections"],
+        choices=["stats", "projections", "projections-csv"],
         default="stats",
         help="Which data to fetch",
     )
@@ -195,5 +271,7 @@ if __name__ == "__main__":
                 await sync_fangraphs_stats(db)
             elif args.action == "projections":
                 await sync_fangraphs_projections(db)
+            elif args.action == "projections-csv":
+                await sync_projections_from_csv(db)
 
     asyncio.run(main())
