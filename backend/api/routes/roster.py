@@ -7,7 +7,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.dependencies import get_db_session
-from backend.database.models import Game, Player, PlayerStats, UserLeague, UserRoster
+from backend.database.models import (
+    Game,
+    Lineup,
+    Player,
+    PlayerStats,
+    ProbablePitcher,
+    UserLeague,
+    UserRoster,
+)
 
 router = APIRouter(prefix="/api", tags=["roster"])
 
@@ -90,6 +98,36 @@ async def get_roster(league_id: int, db: AsyncSession = Depends(get_db_session))
                     "stats": stat.stats,
                 }
 
+    # Build lineup lookup: player_id -> batting_order + confirmed status
+    # Only look at games happening today
+    today_game_ids = [g.id for g in games]
+    lineup_map: dict[int, dict] = {}
+    teams_with_lineups: set[str] = set()
+    if today_game_ids and player_ids:
+        lineup_result = await db.execute(
+            select(Lineup).where(Lineup.game_id.in_(today_game_ids))
+        )
+        for lu in lineup_result.scalars().all():
+            teams_with_lineups.add(lu.team)
+            if lu.player_id in player_ids:
+                lineup_map[lu.player_id] = {
+                    "batting_order": lu.batting_order,
+                    "is_confirmed": bool(lu.is_confirmed),
+                }
+
+    # Build probable pitcher lookup: player_id -> confirmed status
+    prob_pitcher_map: dict[int, dict] = {}
+    if today_game_ids and player_ids:
+        pp_result = await db.execute(
+            select(ProbablePitcher).where(ProbablePitcher.game_id.in_(today_game_ids))
+        )
+        for pp in pp_result.scalars().all():
+            teams_with_lineups.add(pp.team)
+            if pp.player_id in player_ids:
+                prob_pitcher_map[pp.player_id] = {
+                    "is_confirmed": bool(pp.is_confirmed),
+                }
+
     # Compute start/sit scores for hitters
     start_sit_map: dict[int, dict] = {}
     if player_ids:
@@ -105,6 +143,7 @@ async def get_roster(league_id: int, db: AsyncSession = Depends(get_db_session))
             "today_game": None,
             "stats": None,
             "start_sit": None,
+            "lineup_status": None,
         }
 
         if player:
@@ -126,6 +165,32 @@ async def get_roster(league_id: int, db: AsyncSession = Depends(get_db_session))
             # Start/sit recommendation
             if player.id in start_sit_map:
                 entry["start_sit"] = start_sit_map[player.id]
+
+            # Lineup status: batting order or starting pitcher
+            if player.id in lineup_map:
+                lu_info = lineup_map[player.id]
+                entry["lineup_status"] = {
+                    "batting_order": lu_info["batting_order"],
+                    "is_starting_pitcher": False,
+                    "is_confirmed": lu_info["is_confirmed"],
+                    "not_starting": False,
+                }
+            elif player.id in prob_pitcher_map:
+                pp_info = prob_pitcher_map[player.id]
+                entry["lineup_status"] = {
+                    "batting_order": None,
+                    "is_starting_pitcher": True,
+                    "is_confirmed": pp_info["is_confirmed"],
+                    "not_starting": False,
+                }
+            elif player.team and player.team in teams_with_lineups and entry["today_game"]:
+                # Player has a game, their team's lineup is out, but they're not in it
+                entry["lineup_status"] = {
+                    "batting_order": None,
+                    "is_starting_pitcher": False,
+                    "is_confirmed": False,
+                    "not_starting": True,
+                }
 
         elif roster_entry.yahoo_player_name:
             # Unmatched player — use Yahoo data for display

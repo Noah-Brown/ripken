@@ -85,6 +85,13 @@ export interface StartSitScore {
   factors: Record<string, number>;
 }
 
+export interface LineupStatus {
+  batting_order: number | null;
+  is_starting_pitcher: boolean;
+  is_confirmed: boolean;
+  not_starting: boolean;
+}
+
 export interface RosterEntry {
   roster_position: string;
   yahoo_player_key: string | null;
@@ -96,6 +103,7 @@ export interface RosterEntry {
     stats: string;
   } | null;
   start_sit: StartSitScore | null;
+  lineup_status: LineupStatus | null;
 }
 
 export interface RosterResponse {

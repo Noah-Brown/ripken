@@ -6,6 +6,7 @@ import {
   fetchApi,
   type LeagueInfo,
   type LeaguesResponse,
+  type LineupStatus,
   type RosterEntry,
   type RosterResponse,
   type StartSitScore,
@@ -89,6 +90,36 @@ function StartSitBadge({ data }: { data: StartSitScore | null }) {
   );
 }
 
+function LineupBadge({ status }: { status: LineupStatus | null }) {
+  if (!status) return null;
+
+  if (status.not_starting) {
+    return (
+      <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+        Not Starting
+      </span>
+    );
+  }
+
+  if (status.is_starting_pitcher) {
+    return (
+      <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+        SP{status.is_confirmed ? "" : " (proj)"}
+      </span>
+    );
+  }
+
+  if (status.batting_order !== null) {
+    return (
+      <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+        #{status.batting_order}{status.is_confirmed ? "" : " (proj)"}
+      </span>
+    );
+  }
+
+  return null;
+}
+
 function RosterSection({
   title,
   entries,
@@ -120,6 +151,9 @@ function RosterSection({
               </th>
               <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
                 Today
+              </th>
+              <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400 w-24">
+                Lineup
               </th>
               {showStartSit && (
                 <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
@@ -169,6 +203,9 @@ function RosterSection({
                   </td>
                   <td className="px-3 py-2">
                     <GameBadge entry={entry} />
+                  </td>
+                  <td className="px-3 py-2">
+                    <LineupBadge status={entry.lineup_status} />
                   </td>
                   {showStartSit && (
                     <td className="px-3 py-2">
