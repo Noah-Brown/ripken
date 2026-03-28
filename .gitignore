@@ -9,6 +9,8 @@ venv/
 
 # Database
 *.db
+*.db-shm
+*.db-wal
 data/fantasy_dashboard.db
 
 # Environment
