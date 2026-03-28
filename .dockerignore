@@ -1,0 +1,12 @@
+.venv/
+.git/
+node_modules/
+frontend/node_modules/
+frontend/.next/
+data/*.db
+data/*.db-wal
+data/*.db-shm
+__pycache__/
+*.pyc
+.env
+ripken.egg-info/
