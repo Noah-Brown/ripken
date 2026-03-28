@@ -128,6 +128,7 @@ class PitcherAppearance(Base):
     leverage_index_avg = Column(Float)
     inherited_runners = Column(Integer, default=0)
     inherited_scored = Column(Integer, default=0)
+    is_starter = Column(Integer, default=0)
 
 
 class RelieverRole(Base):

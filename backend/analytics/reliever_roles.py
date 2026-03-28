@@ -47,7 +47,10 @@ async def compute_reliever_roles(db: AsyncSession) -> int:
             func.sum(PitcherAppearance.pitches).label("total_pitches"),
             func.max(PitcherAppearance.date).label("last_appearance_date"),
         )
-        .where(PitcherAppearance.date >= window_start)
+        .where(
+            PitcherAppearance.date >= window_start,
+            PitcherAppearance.is_starter == 0,
+        )
         .group_by(PitcherAppearance.player_id)
         .having(func.count() >= MIN_APPEARANCES)
     )

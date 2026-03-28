@@ -429,6 +429,7 @@ async def fetch_game_results(db: AsyncSession, game_id: int) -> None:
                 "blown_save": 1 if stats.get("blownSaves", 0) else 0,
                 "inherited_runners": int(stats.get("inheritedRunners", 0)),
                 "inherited_scored": int(stats.get("inheritedRunnersScored", 0)),
+                "is_starter": 1 if stats.get("gamesStarted", 0) else 0,
             }
 
             stmt = sqlite_insert(PitcherAppearance).values(**row)
@@ -446,6 +447,7 @@ async def fetch_game_results(db: AsyncSession, game_id: int) -> None:
                     "blown_save": stmt.excluded.blown_save,
                     "inherited_runners": stmt.excluded.inherited_runners,
                     "inherited_scored": stmt.excluded.inherited_scored,
+                    "is_starter": stmt.excluded.is_starter,
                 },
             )
             await db.execute(stmt)
