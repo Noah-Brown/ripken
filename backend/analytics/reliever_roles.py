@@ -16,7 +16,7 @@ from backend.database.models import PitcherAppearance, Player, RelieverRole
 logger = logging.getLogger(__name__)
 
 # Minimum appearances in 14 days to classify
-MIN_APPEARANCES = 3
+MIN_APPEARANCES = 1
 
 
 async def compute_reliever_roles(db: AsyncSession) -> int:
