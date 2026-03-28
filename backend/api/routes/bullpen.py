@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.dependencies import get_db_session
 from backend.database.models import (
+    LeagueRoster,
+    LeagueTeam,
     PitcherAppearance,
     Player,
     RelieverRole,
@@ -22,6 +24,7 @@ async def get_bullpen(
     team: str | None = Query(None, description="Filter by MLB team"),
     role: str | None = Query(None, description="Filter by role"),
     roster_only: bool = Query(False, description="Only show rostered relievers"),
+    league_id: int | None = Query(None, description="League ID for ownership data"),
     db: AsyncSession = Depends(get_db_session),
 ):
     """All classified relievers with usage data and availability."""
@@ -52,11 +55,41 @@ async def get_bullpen(
     result = await db.execute(query)
     rows = result.all()
 
-    # Get user's rostered player IDs
+    # Get user's rostered player IDs (cross-league)
     roster_result = await db.execute(
         select(UserRoster.player_id).where(UserRoster.player_id.isnot(None))
     )
     roster_ids = {row[0] for row in roster_result.all()}
+
+    # League ownership (when league_id provided)
+    ownership_map: dict[int, dict] = {}
+    if league_id is not None:
+        # Find user's team keys in this league
+        team_result = await db.execute(
+            select(LeagueTeam.yahoo_team_key).where(
+                LeagueTeam.league_id == league_id,
+                LeagueTeam.is_current_user == 1,
+            )
+        )
+        user_team_keys = {row[0] for row in team_result.all()}
+
+        # Build ownership map
+        ownership_result = await db.execute(
+            select(
+                LeagueRoster.player_id,
+                LeagueRoster.yahoo_team_name,
+                LeagueRoster.yahoo_team_key,
+            ).where(
+                LeagueRoster.league_id == league_id,
+                LeagueRoster.player_id.isnot(None),
+            )
+        )
+        for row in ownership_result.all():
+            if row.player_id is not None:
+                ownership_map[row.player_id] = {
+                    "team_name": row.yahoo_team_name,
+                    "is_mine": row.yahoo_team_key in user_team_keys,
+                }
 
     # Season stats from all non-starter appearances
     season_result = await db.execute(
@@ -114,11 +147,19 @@ async def get_bullpen(
     # Build response
     relievers = []
     for rr, player in rows:
-        is_rostered = player.id in roster_ids
+        pid = player.id
+
+        # Determine roster status
+        if league_id is not None:
+            ownership = ownership_map.get(pid)
+            is_rostered = ownership.get("is_mine", False) if ownership else False
+        else:
+            ownership = None
+            is_rostered = pid in roster_ids
+
         if roster_only and not is_rostered:
             continue
 
-        pid = player.id
         stats = season_stats.get(pid, {})
         daily = daily_by_player.get(pid, {})
 
@@ -129,6 +170,7 @@ async def get_bullpen(
             "throws": player.throws,
             "status": player.status or "active",
             "is_rostered": is_rostered,
+            "ownership": ownership,
             "role": rr.role,
             "confidence": rr.confidence,
             "available_tonight": bool(rr.available_tonight),
