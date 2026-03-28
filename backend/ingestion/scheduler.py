@@ -33,10 +33,11 @@ async def job_sync_schedule():
     from backend.ingestion.mlb_stats import fetch_schedule
 
     today = date.today()
+    start = today - timedelta(days=2)  # Look back to update game statuses
     end = today + timedelta(days=7)
 
     async def run(db):
-        await fetch_schedule(db, today.isoformat(), end.isoformat())
+        await fetch_schedule(db, start.isoformat(), end.isoformat())
 
     await _run_job("sync_schedule", run)
 
@@ -93,6 +94,12 @@ async def job_sync_yahoo_rosters():
     from backend.yahoo.sync import sync_all_rosters
 
     await _run_job("sync_yahoo_rosters", sync_all_rosters)
+
+
+async def job_fetch_game_results():
+    from backend.ingestion.mlb_stats import fetch_all_game_results
+
+    await _run_job("fetch_game_results", fetch_all_game_results)
 
 
 async def job_compute_reliever_roles():
@@ -159,6 +166,11 @@ def create_scheduler() -> AsyncIOScheduler:
     # Yahoo rosters — every 15 minutes
     scheduler.add_job(
         job_sync_yahoo_rosters, "interval", minutes=15, id="sync_yahoo_rosters"
+    )
+
+    # Game results — every 30 minutes (picks up newly final games)
+    scheduler.add_job(
+        job_fetch_game_results, "interval", minutes=30, id="fetch_game_results"
     )
 
     # Reliever role classification — nightly at 4 AM ET (after game results)

@@ -455,6 +455,30 @@ async def fetch_game_results(db: AsyncSession, game_id: int) -> None:
     logger.info("Upserted %d pitcher appearances for game %d", count, game_id)
 
 
+async def fetch_all_game_results(db: AsyncSession) -> None:
+    """Find all final games without pitcher appearances and ingest them."""
+    result = await db.execute(
+        select(Game.id).where(
+            Game.status == "final",
+            ~Game.id.in_(
+                select(PitcherAppearance.game_id).distinct()
+            ),
+        )
+    )
+    game_ids = [row[0] for row in result.all()]
+
+    if not game_ids:
+        logger.info("No unprocessed final games found")
+        return
+
+    logger.info("Found %d unprocessed final games", len(game_ids))
+    for game_id in game_ids:
+        try:
+            await fetch_game_results(db, game_id)
+        except Exception:
+            logger.exception("Failed to ingest game %d", game_id)
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
