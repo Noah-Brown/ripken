@@ -173,6 +173,9 @@ function HomeContent() {
                 <Link href="/pitching" className="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
                   Pitching
                 </Link>
+                <Link href="/team-analysis" className="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
+                  Analysis
+                </Link>
                 <Link href="/bullpen" className="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
                   Bullpen
                 </Link>
