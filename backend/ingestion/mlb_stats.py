@@ -354,8 +354,12 @@ def _parse_ip(ip_str: str) -> float:
 
 async def fetch_game_results(db: AsyncSession, game_id: int) -> None:
     """Fetch live game feed and extract pitcher appearance data from the boxscore."""
+    # Game feed uses v1.1 endpoint, not v1
+    feed_url = f"https://statsapi.mlb.com/api/v1.1/game/{game_id}/feed/live"
     async with httpx.AsyncClient() as client:
-        data = await _get(client, f"/game/{game_id}/feed/live")
+        resp = await client.get(feed_url, timeout=30.0)
+        resp.raise_for_status()
+        data = resp.json()
 
     game_data = data.get("gameData", {})
     game_date = game_data.get("datetime", {}).get("officialDate", "")
