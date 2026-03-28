@@ -102,6 +102,12 @@ async def job_sync_yahoo_rosters():
     await _run_job("sync_yahoo_rosters", sync_all_rosters)
 
 
+async def job_sync_league_rosters():
+    from backend.yahoo.sync import sync_league_rosters
+
+    await _run_job("sync_league_rosters", sync_league_rosters)
+
+
 async def job_fetch_game_results():
     from backend.ingestion.mlb_stats import fetch_all_game_results
 
@@ -179,6 +185,11 @@ def create_scheduler() -> AsyncIOScheduler:
     # Yahoo rosters — every 15 minutes
     scheduler.add_job(
         job_sync_yahoo_rosters, "interval", minutes=15, id="sync_yahoo_rosters"
+    )
+
+    # League-wide rosters — every hour
+    scheduler.add_job(
+        job_sync_league_rosters, "interval", hours=1, id="sync_league_rosters"
     )
 
     # Game results — every 30 minutes (picks up newly final games)

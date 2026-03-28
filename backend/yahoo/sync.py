@@ -7,8 +7,14 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.database.models import UserAccount, UserLeague, UserRoster
-from backend.yahoo.client import get_league_settings, get_leagues, get_roster, get_team_key
+from backend.database.models import LeagueRoster, LeagueTeam, UserAccount, UserLeague, UserRoster
+from backend.yahoo.client import (
+    get_league_settings,
+    get_league_teams,
+    get_leagues,
+    get_roster,
+    get_team_key,
+)
 from backend.yahoo.player_mapping import map_roster_players
 
 logger = logging.getLogger(__name__)
@@ -172,3 +178,108 @@ async def sync_all_rosters(db: AsyncSession) -> None:
             logger.warning(f"Skipping league {league.league_name} — only 2 league slots supported.")
             continue
         await sync_roster_for_league(db, league, league_slot)
+
+
+async def sync_league_rosters(db: AsyncSession) -> None:
+    """Sync all teams' rosters for all connected leagues."""
+    import asyncio
+
+    result = await db.execute(select(UserAccount).where(UserAccount.id == 1))
+    account = result.scalar_one_or_none()
+    if not account:
+        logger.info("No Yahoo account connected — skipping league roster sync.")
+        return
+
+    result = await db.execute(select(UserLeague).where(UserLeague.user_account_id == 1))
+    leagues = result.scalars().all()
+
+    # Build league_slot lookup (1-based index)
+    league_slots = {lg.id: idx + 1 for idx, lg in enumerate(leagues)}
+
+    for league in leagues:
+        league_slot = league_slots.get(league.id, 1)
+        if league_slot > 2:
+            continue
+
+        # Fetch all teams in this league
+        teams_data = await get_league_teams(db, league.yahoo_league_key)
+        if not teams_data:
+            logger.warning(f"No teams found for league {league.league_name}")
+            continue
+
+        # Upsert league_teams
+        for t in teams_data:
+            existing = await db.execute(
+                select(LeagueTeam).where(LeagueTeam.yahoo_team_key == t["team_key"])
+            )
+            team_row = existing.scalar_one_or_none()
+            if team_row:
+                team_row.team_name = t.get("team_name", team_row.team_name)
+                team_row.manager_name = t.get("manager_name", team_row.manager_name)
+                team_row.is_current_user = 1 if t.get("is_current_user") else 0
+            else:
+                db.add(LeagueTeam(
+                    league_id=league.id,
+                    yahoo_team_key=t["team_key"],
+                    team_name=t.get("team_name", ""),
+                    manager_name=t.get("manager_name", ""),
+                    is_current_user=1 if t.get("is_current_user") else 0,
+                ))
+        await db.commit()
+
+        # Delete existing league_rosters for this league
+        await db.execute(
+            delete(LeagueRoster).where(LeagueRoster.league_id == league.id)
+        )
+
+        # Fetch roster for each team
+        for idx, t in enumerate(teams_data):
+            team_key = t["team_key"]
+            team_name = t.get("team_name", "")
+            logger.info(f"Fetching roster for {team_name} ({team_key})")
+
+            yahoo_players = await get_roster(db, team_key)
+            if not yahoo_players:
+                continue
+
+            matched, unmatched = await map_roster_players(db, yahoo_players, league_slot)
+
+            for entry in matched:
+                name_data = entry.get("name", {})
+                yahoo_name = (
+                    name_data.get("full", "") if isinstance(name_data, dict) else str(name_data)
+                )
+                db.add(LeagueRoster(
+                    league_id=league.id,
+                    yahoo_team_key=team_key,
+                    yahoo_team_name=team_name,
+                    player_id=entry["internal_player_id"],
+                    yahoo_player_key=entry.get("player_key", ""),
+                    yahoo_player_name=yahoo_name,
+                    roster_position=entry.get("selected_position", ""),
+                ))
+
+            for entry in unmatched:
+                name_data = entry.get("name", {})
+                yahoo_name = (
+                    name_data.get("full", "") if isinstance(name_data, dict) else str(name_data)
+                )
+                db.add(LeagueRoster(
+                    league_id=league.id,
+                    yahoo_team_key=team_key,
+                    yahoo_team_name=team_name,
+                    player_id=None,
+                    yahoo_player_key=entry.get("player_key", ""),
+                    yahoo_player_name=yahoo_name,
+                    roster_position=entry.get("selected_position", ""),
+                ))
+
+            await db.commit()
+
+            # Rate limit between teams
+            if idx < len(teams_data) - 1:
+                await asyncio.sleep(1)
+
+        logger.info(
+            f"Synced league rosters for {league.league_name}: {len(teams_data)} teams"
+        )
