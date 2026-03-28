@@ -14,6 +14,7 @@ from backend.config import settings
 from backend.database.connection import async_session
 from backend.database.models import (
     Game,
+    Lineup,
     PitcherAppearance,
     Player,
     ProbablePitcher,
@@ -121,6 +122,140 @@ async def fetch_schedule(db: AsyncSession, start_date: str, end_date: str) -> No
 
     await db.commit()
     logger.info("Upserted %d games for %s to %s", len(games_to_upsert), start_date, end_date)
+
+
+# ---------------------------------------------------------------------------
+# 1b. Game Lineups
+# ---------------------------------------------------------------------------
+
+
+async def fetch_game_lineups(db: AsyncSession, game_id: int) -> int:
+    """Fetch lineup data for a single game from the live feed and upsert into lineups table.
+
+    Returns the number of lineup entries upserted.
+    """
+    feed_url = f"https://statsapi.mlb.com/api/v1.1/game/{game_id}/feed/live"
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(feed_url, timeout=30.0)
+        resp.raise_for_status()
+        data = resp.json()
+
+    game_data = data.get("gameData", {})
+    teams_info = game_data.get("teams", {})
+
+    boxscore = data.get("liveData", {}).get("boxscore", {})
+    teams_box = boxscore.get("teams", {})
+
+    count = 0
+    for side in ("away", "home"):
+        team_box = teams_box.get(side, {})
+        batting_order = team_box.get("battingOrder", [])
+        if not batting_order:
+            continue
+
+        team_abbr = teams_info.get(side, {}).get("abbreviation", "")
+        if not team_abbr:
+            continue
+
+        players_data = team_box.get("players", {})
+
+        # Track player_ids we upsert so we can delete stale entries
+        upserted_player_ids = []
+
+        for order_idx, mlb_id in enumerate(batting_order, start=1):
+            player_key = f"ID{mlb_id}"
+            player_info = players_data.get(player_key, {})
+            person = player_info.get("person", {})
+
+            # Resolve mlb_id -> internal player_id
+            result = await db.execute(
+                select(Player.id).where(Player.mlb_id == mlb_id)
+            )
+            player_id = result.scalar_one_or_none()
+
+            if player_id is None:
+                ins = sqlite_insert(Player).values(
+                    mlb_id=mlb_id,
+                    full_name=person.get("fullName", f"Unknown ({mlb_id})"),
+                    team=team_abbr,
+                    position=player_info.get("position", {}).get("abbreviation", ""),
+                    status="active",
+                )
+                ins = ins.on_conflict_do_nothing(index_elements=["mlb_id"])
+                await db.execute(ins)
+                await db.flush()
+                result = await db.execute(
+                    select(Player.id).where(Player.mlb_id == mlb_id)
+                )
+                player_id = result.scalar_one_or_none()
+
+            if player_id is None:
+                continue
+
+            upserted_player_ids.append(player_id)
+
+            stmt = sqlite_insert(Lineup).values(
+                game_id=game_id,
+                team=team_abbr,
+                player_id=player_id,
+                batting_order=order_idx,
+                is_confirmed=1,
+                source="mlb",
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["game_id", "team", "player_id"],
+                set_={
+                    "batting_order": stmt.excluded.batting_order,
+                    "is_confirmed": stmt.excluded.is_confirmed,
+                },
+            )
+            await db.execute(stmt)
+            count += 1
+
+        # Delete stale lineup entries for this game/team (late scratches)
+        if upserted_player_ids:
+            from sqlalchemy import delete
+
+            await db.execute(
+                delete(Lineup).where(
+                    Lineup.game_id == game_id,
+                    Lineup.team == team_abbr,
+                    Lineup.player_id.notin_(upserted_player_ids),
+                )
+            )
+
+    return count
+
+
+async def fetch_lineups(db: AsyncSession) -> None:
+    """Fetch lineups for all of today's scheduled or live games."""
+    today = date.today().isoformat()
+
+    result = await db.execute(
+        select(Game.id).where(
+            Game.date == today,
+            Game.status.in_(["scheduled", "live"]),
+        )
+    )
+    game_ids = [row[0] for row in result.all()]
+
+    if not game_ids:
+        logger.info("No scheduled/live games today for lineup fetch")
+        return
+
+    logger.info("Fetching lineups for %d games", len(game_ids))
+    total = 0
+    for game_id in game_ids:
+        try:
+            count = await fetch_game_lineups(db, game_id)
+            total += count
+        except httpx.HTTPStatusError as exc:
+            logger.warning("Failed to fetch lineup for game %d: %s", game_id, exc)
+        except Exception:
+            logger.exception("Failed to fetch lineup for game %d", game_id)
+
+    await db.commit()
+    logger.info("Upserted %d total lineup entries across %d games", total, len(game_ids))
 
 
 # ---------------------------------------------------------------------------
@@ -491,7 +626,7 @@ async def main() -> None:
     parser.add_argument(
         "--action",
         required=True,
-        choices=["schedule", "rosters", "probable_pitchers", "transactions", "game_results"],
+        choices=["schedule", "rosters", "probable_pitchers", "transactions", "game_results", "lineups"],
         help="Which data to fetch",
     )
     parser.add_argument("--start-date", default=str(date.today()), help="Start date (YYYY-MM-DD)")
@@ -510,6 +645,8 @@ async def main() -> None:
             await fetch_probable_pitchers(db, args.start_date, args.end_date)
         elif args.action == "transactions":
             await fetch_transactions(db, args.start_date, args.end_date)
+        elif args.action == "lineups":
+            await fetch_lineups(db)
         elif args.action == "game_results":
             if not args.game_id:
                 parser.error("--game-id is required for game_results action")
