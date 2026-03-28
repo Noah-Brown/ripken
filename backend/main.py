@@ -15,6 +15,7 @@ from backend.api.routes.pitching import router as pitching_router
 from backend.api.routes.prospects import router as prospects_router
 from backend.api.routes.roster import router as roster_router
 from backend.api.routes.waivers import router as waivers_router
+from backend.config import settings
 from backend.database.connection import engine
 from backend.database.models import Base
 from backend.ingestion.scheduler import create_scheduler, run_startup_jobs
@@ -48,7 +49,7 @@ app = FastAPI(title="Ripken", description="Fantasy Baseball Dashboard", lifespan
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[o.strip() for o in settings.allowed_origins.split(",")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

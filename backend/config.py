@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     yahoo_client_secret: str = ""
     yahoo_redirect_uri: str = "http://localhost:8000/auth/yahoo/callback"
 
+    # URLs
+    allowed_origins: str = "http://localhost:3000"
+    frontend_url: str = "http://localhost:3000"
+
     # Scheduling
     lineup_check_start_hour: int = 14
     lineup_check_end_hour: int = 23

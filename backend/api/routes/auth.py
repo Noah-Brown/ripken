@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.dependencies import get_db_session
+from backend.config import settings
 from backend.database.models import UserAccount
 from backend.yahoo.auth import exchange_code_for_tokens, get_authorization_url, store_tokens
 
@@ -37,7 +38,7 @@ async def yahoo_callback(code: str, db: AsyncSession = Depends(get_db_session)):
     except Exception:
         logger.exception("Post-auth sync failed (non-blocking).")
 
-    return RedirectResponse("http://localhost:3000/?yahoo_connected=1")
+    return RedirectResponse(f"{settings.frontend_url}/?yahoo_connected=1")
 
 
 @router.get("/yahoo/status")
