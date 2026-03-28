@@ -261,7 +261,7 @@ async def import_prospects_csv(
             skipped += 1
             continue
 
-        # Parse numeric fields
+        # Parse numeric fields (FanGraphs uses "45+", "40+" etc. for FV — strip the "+")
         try:
             rank = int(rank_str) if rank_str else None
         except ValueError:
@@ -271,15 +271,15 @@ async def import_prospects_csv(
         except ValueError:
             redraft_rank = None
         try:
-            fv = int(fv_str) if fv_str else None
+            fv = int(fv_str.rstrip("+")) if fv_str else None
         except ValueError:
             fv = None
 
-        # Find or create player
+        # Find or create player — use first() to handle duplicate names gracefully
         result = await db.execute(
             select(Player).where(Player.full_name == name.strip())
         )
-        player = result.scalar_one_or_none()
+        player = result.scalars().first()
 
         if not player:
             player = Player(
