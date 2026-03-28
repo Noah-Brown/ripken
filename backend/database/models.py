@@ -258,6 +258,35 @@ class UserRoster(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class LeagueTeam(Base):
+    __tablename__ = "league_teams"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    league_id = Column(Integer, ForeignKey("user_leagues.id"), nullable=False)
+    yahoo_team_key = Column(Text, nullable=False, unique=True)
+    team_name = Column(Text)
+    manager_name = Column(Text)
+    is_current_user = Column(Integer, default=0)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class LeagueRoster(Base):
+    __tablename__ = "league_rosters"
+    __table_args__ = (
+        UniqueConstraint("league_id", "yahoo_team_key", "yahoo_player_key"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    league_id = Column(Integer, ForeignKey("user_leagues.id"), nullable=False)
+    yahoo_team_key = Column(Text, nullable=False)
+    yahoo_team_name = Column(Text)
+    player_id = Column(Integer, ForeignKey("players.id"))
+    yahoo_player_key = Column(Text, nullable=False)
+    yahoo_player_name = Column(Text)
+    roster_position = Column(Text)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class UserWatchlist(Base):
     __tablename__ = "user_watchlist"
 
