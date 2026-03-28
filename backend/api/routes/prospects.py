@@ -6,7 +6,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -210,56 +210,86 @@ async def get_prospect_stats(
 
 @router.post("/prospects/refresh-stats")
 async def refresh_all_prospect_stats(
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db_session),
 ):
-    """Batch-resolve MLB IDs and fetch stats for all prospects."""
-    import asyncio
-
+    """Kick off background batch-resolve of MLB IDs and stats for all prospects."""
     result = await db.execute(
         select(Prospect, Player)
         .join(Player, Prospect.player_id == Player.id)
     )
     rows = result.all()
+    total = len(rows)
+
+    # Collect (prospect_id, player_id, player_name, mlb_id) tuples for background work
+    work_items = [
+        (prospect.id, player.id, player.full_name, player.mlb_id)
+        for prospect, player in rows
+    ]
+
+    background_tasks.add_task(_refresh_prospect_stats_batch, work_items)
+    return {"status": "started", "total": total}
+
+
+async def _refresh_prospect_stats_batch(
+    work_items: list[tuple[int, int, str, int | None]],
+) -> None:
+    """Background task: resolve MLB IDs and fetch stats in batches with commits."""
+    import asyncio
+
+    from backend.database.connection import async_session
 
     resolved = 0
     fetched = 0
     failed = 0
 
-    for prospect, player in rows:
-        # Resolve MLB ID if missing
-        if not player.mlb_id:
-            mlb_id = await resolve_mlb_id(player.full_name)
-            if mlb_id:
-                player.mlb_id = mlb_id
-                resolved += 1
-            else:
-                failed += 1
-                continue
-            # Rate-limit to avoid hammering the API
-            await asyncio.sleep(0.3)
+    # Process in batches of 20, committing after each batch
+    batch_size = 20
+    for i in range(0, len(work_items), batch_size):
+        batch = work_items[i : i + batch_size]
+        async with async_session() as db:
+            for prospect_id, player_id, player_name, mlb_id in batch:
+                # Resolve MLB ID if missing
+                if not mlb_id:
+                    mlb_id = await resolve_mlb_id(player_name)
+                    if mlb_id:
+                        player = await db.get(Player, player_id)
+                        if player:
+                            player.mlb_id = mlb_id
+                        resolved += 1
+                    else:
+                        failed += 1
+                        continue
+                    await asyncio.sleep(0.3)
 
-        # Fetch stats if stale or missing
-        cache_fresh = False
-        if prospect.stats_fetched_at and prospect.minor_league_stats:
-            cache_age = datetime.now(timezone.utc) - prospect.stats_fetched_at.replace(
-                tzinfo=timezone.utc
-            )
-            cache_fresh = cache_age < timedelta(hours=6)
+                # Fetch stats
+                prospect = await db.get(Prospect, prospect_id)
+                if not prospect:
+                    continue
 
-        if not cache_fresh:
-            stats = await fetch_milb_stats(player.mlb_id)
-            prospect.minor_league_stats = json.dumps(stats)
-            prospect.stats_fetched_at = datetime.now(timezone.utc)
-            if stats:
-                fetched += 1
-            await asyncio.sleep(0.3)
+                cache_fresh = False
+                if prospect.stats_fetched_at and prospect.minor_league_stats:
+                    cache_age = datetime.now(timezone.utc) - prospect.stats_fetched_at.replace(
+                        tzinfo=timezone.utc
+                    )
+                    cache_fresh = cache_age < timedelta(hours=6)
 
-    await db.commit()
+                if not cache_fresh:
+                    stats = await fetch_milb_stats(mlb_id)
+                    prospect.minor_league_stats = json.dumps(stats)
+                    prospect.stats_fetched_at = datetime.now(timezone.utc)
+                    if stats:
+                        fetched += 1
+                    await asyncio.sleep(0.3)
+
+            await db.commit()
+
+        logger.info(f"Prospect refresh batch {i // batch_size + 1}: processed {len(batch)} prospects")
+
     logger.info(
-        f"Prospect refresh: resolved {resolved} MLB IDs, "
+        f"Prospect refresh complete: resolved {resolved} MLB IDs, "
         f"fetched stats for {fetched}, failed to resolve {failed}"
     )
-    return {"resolved": resolved, "fetched": fetched, "failed": failed, "total": len(rows)}
 
 
 @router.post("/prospects/import")
