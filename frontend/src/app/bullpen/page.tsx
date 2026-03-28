@@ -13,6 +13,7 @@ interface Reliever {
   full_name: string;
   team: string | null;
   throws: string | null;
+  status: string;
   is_rostered: boolean;
   role: string;
   confidence: string;
@@ -160,6 +161,11 @@ function RelieverRow({
               className="h-1.5 w-1.5 rounded-full bg-green-500 flex-shrink-0"
               title="On your roster"
             />
+          )}
+          {r.status === "inactive" && (
+            <span className="rounded px-1 py-0.5 text-[10px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+              MINORS
+            </span>
           )}
         </div>
         {showTeam && r.team && (

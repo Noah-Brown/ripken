@@ -496,6 +496,7 @@ async def fetch_game_results(db: AsyncSession, game_id: int) -> None:
 
     game_data = data.get("gameData", {})
     game_date = game_data.get("datetime", {}).get("officialDate", "")
+    teams_info = game_data.get("teams", {})
 
     boxscore = data.get("liveData", {}).get("boxscore", {})
     teams_box = boxscore.get("teams", {})
@@ -503,6 +504,7 @@ async def fetch_game_results(db: AsyncSession, game_id: int) -> None:
     count = 0
     for side in ("away", "home"):
         team_box = teams_box.get(side, {})
+        team_abbr = teams_info.get(side, {}).get("abbreviation", "")
         pitcher_ids = team_box.get("pitchers", [])
         players_data = team_box.get("players", {})
 
@@ -530,6 +532,7 @@ async def fetch_game_results(db: AsyncSession, game_id: int) -> None:
                 ins = sqlite_insert(Player).values(
                     mlb_id=mlb_id,
                     full_name=person.get("fullName", "Unknown"),
+                    team=team_abbr,
                     position="P",
                     status="active",
                 )

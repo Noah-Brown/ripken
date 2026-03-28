@@ -127,6 +127,7 @@ async def get_bullpen(
             "full_name": player.full_name,
             "team": player.team,
             "throws": player.throws,
+            "status": player.status or "active",
             "is_rostered": is_rostered,
             "role": rr.role,
             "confidence": rr.confidence,
