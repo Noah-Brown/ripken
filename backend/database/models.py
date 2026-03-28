@@ -240,6 +240,8 @@ class UserRoster(Base):
     league_id = Column(Integer, ForeignKey("user_leagues.id"), nullable=False)
     player_id = Column(Integer, ForeignKey("players.id"))
     yahoo_player_key = Column(Text)
+    yahoo_player_name = Column(Text)
+    yahoo_team = Column(Text)
     roster_position = Column(Text)
     is_editable = Column(Integer, default=1)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

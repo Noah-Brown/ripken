@@ -119,10 +119,13 @@ async def sync_roster_for_league(
     # Insert matched players
     for entry in matched:
         name_data = entry.get("name", {})
+        yahoo_name = name_data.get("full", "") if isinstance(name_data, dict) else str(name_data)
         roster = UserRoster(
             league_id=league.id,
             player_id=entry["internal_player_id"],
             yahoo_player_key=entry.get("player_key"),
+            yahoo_player_name=yahoo_name,
+            yahoo_team=entry.get("editorial_team_abbr", ""),
             roster_position=entry.get("selected_position", ""),
             is_editable=1,
         )
@@ -130,10 +133,14 @@ async def sync_roster_for_league(
 
     # Insert unmatched players (player_id=None, stored for visibility)
     for entry in unmatched:
+        name_data = entry.get("name", {})
+        yahoo_name = name_data.get("full", "") if isinstance(name_data, dict) else str(name_data)
         roster = UserRoster(
             league_id=league.id,
             player_id=None,
             yahoo_player_key=entry.get("player_key"),
+            yahoo_player_name=yahoo_name,
+            yahoo_team=entry.get("editorial_team_abbr", ""),
             roster_position=entry.get("selected_position", ""),
             is_editable=1,
         )

@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from backend.api.routes.alerts import router as alerts_router
 from backend.api.routes.auth import router as auth_router
@@ -31,6 +32,17 @@ async def lifespan(app: FastAPI):
     # Create all tables on startup
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Add new columns to existing tables (SQLite ALTER TABLE)
+        for col, col_type in [
+            ("yahoo_player_name", "TEXT"),
+            ("yahoo_team", "TEXT"),
+        ]:
+            try:
+                await conn.execute(
+                    text(f"ALTER TABLE user_rosters ADD COLUMN {col} {col_type}")
+                )
+            except Exception:
+                pass  # Column already exists
 
     # Start scheduler
     scheduler = create_scheduler()

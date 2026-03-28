@@ -72,7 +72,7 @@ export interface TodayGameInfo {
 }
 
 export interface RosterPlayer {
-  id: number;
+  id: number | null;
   full_name: string;
   team: string | null;
   position: string | null;

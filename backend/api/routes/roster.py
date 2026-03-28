@@ -127,6 +127,16 @@ async def get_roster(league_id: int, db: AsyncSession = Depends(get_db_session))
             if player.id in start_sit_map:
                 entry["start_sit"] = start_sit_map[player.id]
 
+        elif roster_entry.yahoo_player_name:
+            # Unmatched player — use Yahoo data for display
+            entry["player"] = {
+                "id": None,
+                "full_name": roster_entry.yahoo_player_name,
+                "team": roster_entry.yahoo_team,
+                "position": None,
+                "status": "unmatched",
+            }
+
         roster_entries.append(entry)
 
     return {"league_id": league_id, "date": today, "roster": roster_entries}
