@@ -153,6 +153,12 @@ def _score_performance(prospect: Prospect) -> float:
     except (json.JSONDecodeError, TypeError):
         return 50.0
 
+    # Stats may be a list of season entries — use the most recent one
+    if isinstance(stats, list):
+        if not stats:
+            return 50.0
+        stats = stats[-1]
+
     # Try OPS for hitters, ERA for pitchers
     ops = stats.get("ops") or stats.get("OPS")
     era = stats.get("era") or stats.get("ERA")
