@@ -6,6 +6,12 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.analytics.category_value import (
+    compute_category_needs_h2h,
+    compute_category_needs_roto,
+    load_league_projections,
+    score_players,
+)
 from backend.api.dependencies import get_db_session
 from backend.database.models import (
     LeagueRoster,
@@ -45,7 +51,10 @@ def _extract_projection(stats_json: str | None, keys: list[str]) -> dict | None:
 
 
 def _sort_key(player: dict, is_pitcher: bool) -> float:
-    """Sort key: Off desc for batters, WAR desc for pitchers."""
+    """Sort by value_score first, then Off/WAR as fallback."""
+    vs = player.get("value_score")
+    if vs is not None:
+        return -vs
     proj = player.get("projection") or {}
     if is_pitcher:
         return -(proj.get("WAR") or 0)
@@ -134,6 +143,46 @@ async def get_waivers(
     )
     players_by_id = {p.id: p for p in player_result.scalars().all()}
 
+    # Compute value scores
+    value_scores: dict[int, dict] = {}
+    needs: dict = {}
+    categories: list = []
+    try:
+        categories, all_team_totals, my_team_key, my_rate_accum, all_players = (
+            await load_league_projections(db, league_id)
+        )
+        is_roto = league.format and league.format != "head"
+        if is_roto:
+            needs = compute_category_needs_roto(my_team_key, all_team_totals, categories)
+        else:
+            my_totals = all_team_totals.get(my_team_key, {})
+            needs = compute_category_needs_h2h(my_totals, all_team_totals, categories)
+
+        # Build candidate projections — two-dict format for two-way players
+        candidate_projs: dict[int, dict[str, dict]] = {}
+        for pid in all_proj_ids:
+            projs: dict[str, dict] = {}
+            if pid in batting_proj:
+                try:
+                    projs["projections_batting"] = json.loads(batting_proj[pid])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            if pid in pitching_proj:
+                try:
+                    projs["projections_pitching"] = json.loads(pitching_proj[pid])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            if projs:
+                candidate_projs[pid] = projs
+
+        value_scores = score_players(
+            candidate_projs, players_by_id, needs, categories,
+            all_team_totals.get(my_team_key, {}), my_rate_accum,
+        )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Value scoring failed, falling back")
+
     # Build position groups
     positions: dict[str, list] = {}
 
@@ -161,6 +210,7 @@ async def get_waivers(
         else:
             proj = _extract_projection(batting_proj.get(pid), BATTER_KEYS)
 
+        score_data = value_scores.get(pid, {})
         entry = {
             "player_id": pid,
             "full_name": player.full_name,
@@ -170,6 +220,8 @@ async def get_waivers(
             "is_mine": ownership["is_mine"] if ownership else False,
             "is_available": ownership is None,
             "projection": proj,
+            "value_score": score_data.get("value_score"),
+            "category_impact": score_data.get("category_impact"),
         }
 
         if pos not in positions:
@@ -190,8 +242,21 @@ async def get_waivers(
         if pos not in ordered:
             ordered[pos] = positions[pos]
 
+    # Build needs summary for the frontend panel
+    needs_summary = []
+    if value_scores:
+        for cat in categories:
+            fg_key = cat["fg_key"]
+            needs_summary.append({
+                "category": cat["display_name"],
+                "need": round(needs.get(fg_key, 0), 2),
+                "rank": None,
+            })
+        needs_summary.sort(key=lambda x: -x["need"])
+
     return {
         "league_id": league_id,
         "league_name": league.league_name,
         "positions": ordered,
+        "category_needs": needs_summary,
     }
