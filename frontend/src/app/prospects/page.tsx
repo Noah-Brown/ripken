@@ -456,7 +456,7 @@ export default function ProspectsPage() {
       });
       if (!res.ok) throw new Error("Upload failed");
       const result = await res.json();
-      alert(`Imported ${result.imported} prospects, skipped ${result.skipped}`);
+      alert(`Imported ${result.imported}, updated ${result.updated ?? 0}, skipped ${result.skipped}`);
       loadData();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");

@@ -163,6 +163,20 @@ async def get_prospect_stats(
 
     # Resolve MLB ID if we don't have one
     mlb_id = player.mlb_id
+    if not mlb_id and player.fangraphs_id:
+        # Try Chadwick crosswalk: look up by fangraphs_id (integer)
+        from sqlalchemy import select as sa_select
+        xwalk = await db.execute(
+            sa_select(Player.mlb_id).where(
+                Player.fangraphs_id == player.fangraphs_id,
+                Player.mlb_id.isnot(None),
+            )
+        )
+        row = xwalk.first()
+        if row and row[0]:
+            mlb_id = row[0]
+            player.mlb_id = mlb_id
+            await db.commit()
     if not mlb_id:
         mlb_id = await resolve_mlb_id(player.full_name)
         if mlb_id:
