@@ -16,6 +16,7 @@ from backend.api.routes.matchup import router as matchup_router
 from backend.api.routes.pitching import router as pitching_router
 from backend.api.routes.prospects import router as prospects_router
 from backend.api.routes.roster import router as roster_router
+from backend.api.routes.team_analysis import router as team_analysis_router
 from backend.api.routes.waivers import router as waivers_router
 from backend.config import settings
 from backend.database.connection import engine
@@ -79,6 +80,7 @@ app.include_router(pitching_router)
 app.include_router(prospects_router)
 app.include_router(roster_router)
 app.include_router(waivers_router)
+app.include_router(team_analysis_router)
 
 
 @app.get("/health")
