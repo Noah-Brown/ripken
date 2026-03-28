@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy import delete, select
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.dependencies import get_db_session
 from backend.analytics.prospect_signals import compute_prospect_signals
 from backend.database.models import Player, Prospect
+from backend.ingestion.mlb_stats_api import fetch_milb_stats, resolve_mlb_id
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +124,75 @@ async def remove_prospect(
     await db.execute(delete(Prospect).where(Prospect.id == prospect_id))
     await db.commit()
     return {"deleted": True}
+
+
+@router.get("/prospects/{prospect_id}/stats")
+async def get_prospect_stats(
+    prospect_id: int,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Fetch MiLB stats for a prospect, using cached data if fresh."""
+    result = await db.execute(
+        select(Prospect, Player)
+        .join(Player, Prospect.player_id == Player.id)
+        .where(Prospect.id == prospect_id)
+    )
+    row = result.one_or_none()
+    if not row:
+        return {"error": "Prospect not found"}
+
+    prospect, player = row
+
+    # Check cache — return cached stats if less than 6 hours old
+    if prospect.stats_fetched_at and prospect.minor_league_stats:
+        cache_age = datetime.now(timezone.utc) - prospect.stats_fetched_at.replace(
+            tzinfo=timezone.utc
+        )
+        if cache_age < timedelta(hours=6):
+            try:
+                cached = json.loads(prospect.minor_league_stats)
+                return {
+                    "player_id": player.id,
+                    "mlb_id": player.mlb_id,
+                    "season": datetime.now().year,
+                    "stats": cached if isinstance(cached, list) else [],
+                    "cached": True,
+                }
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+    # Resolve MLB ID if we don't have one
+    mlb_id = player.mlb_id
+    if not mlb_id:
+        mlb_id = await resolve_mlb_id(player.full_name)
+        if mlb_id:
+            player.mlb_id = mlb_id
+            await db.commit()
+
+    if not mlb_id:
+        return {
+            "player_id": player.id,
+            "mlb_id": None,
+            "season": datetime.now().year,
+            "stats": [],
+            "error": "Could not resolve MLB ID for this player",
+        }
+
+    # Fetch fresh stats
+    stats = await fetch_milb_stats(mlb_id)
+
+    # Cache the results
+    prospect.minor_league_stats = json.dumps(stats)
+    prospect.stats_fetched_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    return {
+        "player_id": player.id,
+        "mlb_id": mlb_id,
+        "season": datetime.now().year,
+        "stats": stats,
+        "cached": False,
+    }
 
 
 @router.post("/prospects/import")
