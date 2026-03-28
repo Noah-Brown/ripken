@@ -31,6 +31,7 @@ class Player(Base):
     yahoo_id_1 = Column(Integer)
     yahoo_id_2 = Column(Integer)
     fangraphs_id = Column(Integer)
+    fangraphs_id_str = Column(Text)  # FanGraphs prospect ID string (e.g. "sa3065496")
     savant_id = Column(Integer)
     bref_id = Column(Text)
     team = Column(Text)
@@ -197,6 +198,15 @@ class Prospect(Base):
     scouting_notes = Column(Text)
     on_40_man = Column(Integer, default=0)
     minor_league_stats = Column(Text)
+    fv = Column(Integer)  # FanGraphs Future Value (20-80 scale)
+    scouting_report = Column(Text)  # Full FanGraphs scouting report
+    video_url = Column(Text)
+    trend = Column(Text)
+    redraft_rank = Column(Integer)
+    age = Column(Text)
+    height = Column(Text)
+    weight = Column(Text)
+    stats_fetched_at = Column(DateTime)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
