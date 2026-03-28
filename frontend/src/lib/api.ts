@@ -111,3 +111,51 @@ export interface RosterResponse {
   date: string;
   roster: RosterEntry[];
 }
+
+// --- Team Analysis types ---
+
+export interface CategoryDetail {
+  category: string;
+  my_value: number;
+  league_avg: number;
+  rank: number;
+  need: number;
+  gap_to_next: number | null;
+  gap_below: number | null;
+  points_available: number | null;
+}
+
+export interface TeamAnalysisResponse {
+  league_format: string;
+  scoring_categories: string[];
+  my_team: {
+    team_name: string;
+    projected_totals: Record<string, number>;
+    category_ranks: Record<string, number>;
+    category_needs: Record<string, number>;
+  };
+  categories: CategoryDetail[];
+  num_teams: number;
+  current_matchup: {
+    opponent: string;
+    category_comparison: {
+      category: string;
+      my_projected: number;
+      opp_projected: number;
+      edge: string;
+    }[];
+  } | null;
+  error?: string;
+}
+
+export interface CategoryNeedSummary {
+  category: string;
+  need: number;
+  rank: number | null;
+}
+
+export interface CategoryImpact {
+  projected: number;
+  impact: number;
+  need: number;
+}
