@@ -181,9 +181,6 @@ function HomeContent() {
                 </Link>
               </>
             )}
-            <span className="text-sm text-zinc-500 dark:text-zinc-400">
-              Fantasy Baseball Dashboard
-            </span>
           </div>
         </div>
       </header>
