@@ -81,8 +81,8 @@ Cookie signing uses the Web Crypto API built into the Next.js runtime (zero addi
 ### Frontend Dockerfile
 
 - Multi-stage build on `node:22-alpine`
-- Stage 1 (build): `npm ci` + `next build`
-- Stage 2 (run): copy standalone build output, run `next start --port 3000`
+- Stage 1 (build): `npm ci` + `next build` (requires `output: 'standalone'` in `next.config.ts`)
+- Stage 2 (run): copy `.next/standalone`, `.next/static`, and `public/`; run `node server.js`
 - Build-time env: `NEXT_PUBLIC_API_URL`
 - Runtime env: `DASHBOARD_PASSWORD`, `SESSION_SECRET`
 
@@ -124,29 +124,32 @@ All three on a shared Docker network (`ripken-net`). No ports exposed to host ex
 
 ### Backend
 
-1. **`backend/config.py`** — Add `allowed_origins: str` and `frontend_url: str` fields to Pydantic settings.
-2. **`backend/main.py`** — Replace hardcoded CORS origins with `settings.allowed_origins` (comma-separated string parsed to list). Keep localhost defaults for dev.
-3. **`backend/api/routes/auth.py`** — Already uses `FRONTEND_URL` env var (uncommitted change). No further changes needed.
+1. **`backend/config.py`** — Add `allowed_origins: str = "http://localhost:3000"` and `frontend_url: str = "http://localhost:3000"` fields to Pydantic settings. Move the `FRONTEND_URL` logic from `auth.py` (currently using `os.environ` directly) into this settings class for consistency.
+2. **`backend/main.py`** — Import `settings` from config. Replace hardcoded CORS origins with `settings.allowed_origins` (comma-separated string parsed to list).
+3. **`backend/api/routes/auth.py`** — Use `settings.frontend_url` instead of `os.environ.get("FRONTEND_URL", ...)` for the OAuth redirect.
+4. **`backend/database/connection.py`** — Enable WAL mode on SQLite connection (`PRAGMA journal_mode=WAL`) for safe online backups.
 
 ### Frontend
 
-4. **`frontend/src/app/login/page.tsx`** — New. Simple password form page.
-5. **`frontend/src/app/api/auth/login/route.ts`** — New. Validates password, sets signed cookie.
-6. **`frontend/src/app/api/auth/logout/route.ts`** — New. Clears auth cookie.
-7. **`frontend/src/middleware.ts`** — New. Checks for valid signed cookie on all routes, redirects to `/login` if invalid. Excludes public paths.
-8. **`frontend/src/lib/auth.ts`** — New. Cookie signing/verification utilities using Web Crypto API.
+5. **`frontend/next.config.ts`** — Add `output: 'standalone'` for Docker-optimized builds.
+6. **`frontend/src/app/login/page.tsx`** — New. Simple password form page.
+7. **`frontend/src/app/api/auth/login/route.ts`** — New. Validates password, sets signed cookie.
+8. **`frontend/src/app/api/auth/logout/route.ts`** — New. Clears auth cookie.
+9. **`frontend/src/middleware.ts`** — New. Checks for valid signed cookie on all routes, redirects to `/login` if invalid. Excludes public paths.
+10. **`frontend/src/lib/auth.ts`** — New. Cookie signing/verification utilities using Web Crypto API.
+11. **`frontend/src/lib/api.ts`** — Update to use `API_BASE_URL` (internal `http://backend:8000`) for server-side fetches and `NEXT_PUBLIC_API_URL` (public domain) for client-side fetches. This avoids server-side requests leaving the Docker network and re-entering through Caddy.
 
 ### Configuration
 
-9. **`.env.example`** — Add `DASHBOARD_PASSWORD`, `SESSION_SECRET`, `FRONTEND_URL`, `ALLOWED_ORIGINS`.
+12. **`.env.example`** — Add `DASHBOARD_PASSWORD`, `SESSION_SECRET`, `FRONTEND_URL`, `ALLOWED_ORIGINS`, `API_BASE_URL`.
 
 ### New deployment files
 
-10. **`Dockerfile.backend`** — Backend container definition.
-11. **`Dockerfile.frontend`** — Frontend container definition.
-12. **`docker-compose.yml`** — Orchestration for all three services.
-13. **`Caddyfile`** — Reverse proxy configuration.
-14. **`.dockerignore`** — Exclude `.venv`, `node_modules`, `.git`, `data/*.db`.
+13. **`Dockerfile.backend`** — Backend container definition.
+14. **`Dockerfile.frontend`** — Frontend container definition.
+15. **`docker-compose.yml`** — Orchestration for all three services.
+16. **`Caddyfile`** — Reverse proxy configuration.
+17. **`.dockerignore`** — Exclude `.venv`, `node_modules`, `.git`, `data/*.db`.
 
 ---
 
@@ -161,6 +164,7 @@ SESSION_SECRET=<random-64-char-string>
 FRONTEND_URL=https://ripken.noahbrown.io
 ALLOWED_ORIGINS=https://ripken.noahbrown.io
 NEXT_PUBLIC_API_URL=https://ripken.noahbrown.io
+API_BASE_URL=http://backend:8000
 
 # Yahoo OAuth2
 YAHOO_CLIENT_ID=<existing>
@@ -192,8 +196,9 @@ ENABLE_PROSPECT_TRACKING=true
 ## VPS Setup (One-Time)
 
 1. Provision Digital Ocean droplet: Ubuntu 24.04, 1GB RAM / 1 vCPU ($6/mo)
-2. Install Docker + Docker Compose
-3. Configure UFW firewall: allow 22 (SSH), 80, 443; deny all else
+2. Create a 2GB swapfile (required — Next.js builds exceed 1GB RAM)
+3. Install Docker + Docker Compose
+4. Configure UFW firewall: allow 22 (SSH), 80, 443; deny all else
 4. Clone repo, create `.env` with production values
 5. Add DNS A record: `ripken.noahbrown.io` -> droplet IP
 6. `docker compose up -d`
@@ -224,7 +229,7 @@ Daily cron job on the droplet:
 0 4 * * * root sqlite3 /root/ripken/data/fantasy_dashboard.db ".backup /root/ripken/backups/fantasy_dashboard_$(date +\%Y\%m\%d).db" && find /root/ripken/backups -name "*.db" -mtime +7 -delete
 ```
 
-Uses SQLite's `.backup` command (safe even while the app is running). Keeps 7 days of backups.
+Uses SQLite's `.backup` command for a consistent online snapshot. Safe with WAL mode enabled (see code change #4). Keeps 7 days of backups.
 
 ---
 
