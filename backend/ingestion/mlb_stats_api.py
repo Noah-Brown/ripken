@@ -23,13 +23,6 @@ MILB_SPORT_IDS = {
     16: "Rookie",
 }
 
-HITTING_FIELDS = ["avg", "ops", "homeRuns", "stolenBases", "strikeOuts",
-                  "baseOnBalls", "plateAppearances", "gamesPlayed",
-                  "atBats", "hits"]
-PITCHING_FIELDS = ["era", "whip", "strikeoutsPer9Inn", "walksPer9Inn",
-                   "inningsPitched", "gamesPlayed", "wins", "losses",
-                   "saves", "hits", "earnedRuns"]
-
 
 async def resolve_mlb_id(player_name: str) -> int | None:
     """Search the MLB Stats API for a player by name and return their MLB ID."""
@@ -105,7 +98,6 @@ async def fetch_milb_stats(mlb_id: int, season: int | None = None) -> list[dict]
 
                 if group == "hitting":
                     pa = int(stat.get("plateAppearances", 0))
-                    ab = int(stat.get("atBats", 0))
                     k_pct = f"{(int(stat.get('strikeOuts', 0)) / pa * 100):.1f}%" if pa else "0.0%"
                     bb_pct = f"{(int(stat.get('baseOnBalls', 0)) / pa * 100):.1f}%" if pa else "0.0%"
                     entry["hitting"] = {
