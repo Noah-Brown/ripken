@@ -3,10 +3,10 @@ import { cookies } from "next/headers";
 const COOKIE_NAME = "ripken_session";
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
-function getSecret(): Uint8Array {
+function getSecret(): Uint8Array<ArrayBuffer> {
   const secret = process.env.SESSION_SECRET;
   if (!secret) throw new Error("SESSION_SECRET env var is required");
-  return new TextEncoder().encode(secret);
+  return new TextEncoder().encode(secret) as Uint8Array<ArrayBuffer>;
 }
 
 async function getKey(): Promise<CryptoKey> {
@@ -25,12 +25,12 @@ function hexEncode(buf: ArrayBuffer): string {
     .join("");
 }
 
-function hexDecode(hex: string): Uint8Array {
+function hexDecode(hex: string): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < hex.length; i += 2) {
     bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
   }
-  return bytes;
+  return bytes as Uint8Array<ArrayBuffer>;
 }
 
 export async function createSessionCookie(): Promise<void> {

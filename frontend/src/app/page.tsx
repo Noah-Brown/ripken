@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { fetchApi, type GameInfo, type TodayResponse } from "@/lib/api";
@@ -112,7 +112,7 @@ function GameCard({ game }: { game: GameInfo }) {
   );
 }
 
-export default function Home() {
+function HomeContent() {
   const [data, setData] = useState<TodayResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [yahooConnected, setYahooConnected] = useState<boolean | null>(null);
@@ -244,5 +244,13 @@ export default function Home() {
         )}
       </main>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense>
+      <HomeContent />
+    </Suspense>
   );
 }
