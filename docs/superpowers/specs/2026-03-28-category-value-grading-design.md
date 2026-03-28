@@ -15,6 +15,73 @@ A value engine that grades players based on how much they help your specific fan
 - Waiver value based on rest-of-season needs only (no weekly matchup influence)
 - Future-proof for trade assessment (fairness + team-need impact)
 
+## Stat Mapping
+
+### Yahoo Scoring Categories
+
+`UserLeague.scoring_categories` stores the raw Yahoo API `stat_categories` dict as JSON (via `json.dumps()` in `yahoo/sync.py`). This is a nested structure from Yahoo's settings API, not a flat list of stat names. The value engine must parse this to extract canonical stat abbreviations.
+
+### FanGraphs Projection Column Names
+
+FanGraphs projections are stored as flat dicts with CSV column headers as keys in `PlayerStats.stats` JSON:
+
+**Batting (`stat_type='projections_batting'`):**
+Counting: `PA`, `AB`, `H`, `HR`, `R`, `RBI`, `SB`, `BB`, `SO`, `1B`, `2B`, `3B`
+Rate: `AVG`, `OBP`, `SLG`, `OPS`, `wRC+`, `ISO`, `BABIP`, `WAR`
+
+**Pitching (`stat_type='projections_pitching'`):**
+Counting: `W`, `L`, `SV`, `HLD`, `IP`, `SO`, `QS`, `GS`, `G`, `BB`, `ER`, `HR`
+Rate: `ERA`, `WHIP`, `K/9`, `BB/9`, `FIP`, `K%`, `BB%`, `WAR`
+
+### Yahoo-to-FanGraphs Mapping Dict
+
+A `STAT_MAPPING` dict in the value engine maps Yahoo category display names to FanGraphs CSV keys. This is necessarily hardcoded domain knowledge — Yahoo and FanGraphs use different naming conventions.
+
+```python
+STAT_MAPPING: dict[str, str] = {
+    # Batting counting
+    "R": "R", "Runs (R)": "R",
+    "HR": "HR", "Home Runs (HR)": "HR",
+    "RBI": "RBI", "Runs Batted In (RBI)": "RBI",
+    "SB": "SB", "Stolen Bases (SB)": "SB",
+    "H": "H", "Hits (H)": "H",
+    "BB": "BB", "Walks (BB)": "BB",
+    # Batting rate
+    "AVG": "AVG", "Batting Average (AVG)": "AVG",
+    "OBP": "OBP", "On-base Percentage (OBP)": "OBP",
+    "SLG": "SLG", "Slugging Percentage (SLG)": "SLG",
+    "OPS": "OPS", "On-base + Slugging (OPS)": "OPS",
+    # Pitching counting
+    "W": "W", "Wins (W)": "W",
+    "L": "L", "Losses (L)": "L",
+    "SV": "SV", "Saves (SV)": "SV",
+    "K": "SO", "Strikeouts (K)": "SO",  # Yahoo "K" → FanGraphs "SO"
+    "QS": "QS", "Quality Starts (QS)": "QS",
+    "HLD": "HLD", "Holds (HLD)": "HLD",
+    "IP": "IP", "Innings Pitched (IP)": "IP",
+    # Pitching rate
+    "ERA": "ERA", "Earned Run Average (ERA)": "ERA",
+    "WHIP": "WHIP",
+    "K/9": "K/9",
+}
+```
+
+At startup, the engine parses `scoring_categories` JSON, extracts stat display names or abbreviations, and maps each to a FanGraphs key via this dict. Unknown categories are logged and skipped.
+
+### Stat Classification
+
+Each stat is classified as counting or rate, and whether lower is better (for pitching rate stats). This is hardcoded alongside the mapping:
+
+```python
+RATE_STATS: set[str] = {"AVG", "OBP", "SLG", "OPS", "ERA", "WHIP", "K/9", "BB/9", "FIP"}
+LOWER_IS_BETTER: set[str] = {"ERA", "WHIP", "BB/9"}
+PITCHING_STATS: set[str] = {"W", "L", "SV", "HLD", "IP", "SO", "QS", "ERA", "WHIP", "K/9", "BB/9", "FIP"}
+```
+
+Rate stats use weighted averages (by PA for batting, IP for pitching) when aggregating team totals. Counting stats are summed.
+
+Two-way players (e.g., Ohtani) may have both batting and pitching projections. Both are included — batting projections contribute to batting categories, pitching projections contribute to pitching categories, using the `PITCHING_STATS` set to route correctly.
+
 ## Value Engine Architecture
 
 Located at `backend/analytics/category_value.py`. Three layers:
@@ -23,11 +90,12 @@ Located at `backend/analytics/category_value.py`. Three layers:
 
 For a given league, project each team's rest-of-season totals by summing FanGraphs ROS projections for every player on their roster.
 
-- Counting stats (HR, RBI, R, SB, W, SV, K): sum across roster
-- Rate stats (AVG, OBP, ERA, WHIP): weighted average by PA (batters) or IP (pitchers)
+- Counting stats: sum across roster players
+- Rate stats: weighted average by PA (batters) or IP (pitchers) — uses `_get_num(stats, "PA")` or `_get_num(stats, "IP")` as weights
 - Produces a dict per team: `{HR: 142, SB: 67, AVG: .261, ERA: 3.82, ...}`
 - Uses `LeagueRoster` for all teams' rosters, `PlayerStats` for projections
-- Scoring categories sourced from `UserLeague.scoring_categories` (no hardcoding)
+- Scoring categories parsed from `UserLeague.scoring_categories` via `STAT_MAPPING`
+- Uses the existing `_get_num(stats, *keys)` pattern for flexible key lookup
 
 ### Layer 2: Category Need Assessment
 
@@ -36,6 +104,7 @@ Compare your team's projected totals to the league. Output: `CategoryNeeds` dict
 **H2H format:**
 - Compare projected totals to the league median in each category
 - Categories where you're furthest below median (in the losing direction) get highest need
+- For `LOWER_IS_BETTER` stats, "below median" means your value is higher than median
 - Need score = how far below the win threshold, normalized to 0.0–1.0
 
 **Roto format — gap-aware:**
@@ -51,9 +120,13 @@ Compare your team's projected totals to the league. Output: `CategoryNeeds` dict
 For each candidate player:
 
 1. Look up their FanGraphs ROS projections per category
-2. Compute marginal impact: how much do your team's projected totals improve in each category if you add this player?
+2. Compute marginal impact per category:
+   - **Counting stats**: player's projected stat value (e.g., +18 HR) added to team total
+   - **Rate stats**: recompute the team's weighted average with the player included — delta = new team rate minus old team rate. The magnitude depends on the player's volume (PA or IP) relative to the team's existing total.
 3. Weight each category's impact by the need score from Layer 2
 4. Sum weighted impacts and normalize to 0–100
+
+**Normalization**: Normalize against the best available player in the current candidate pool. The highest raw weighted-impact sum maps to 100, zero maps to 0, and all other players are linearly scaled between. This means scores are relative to the current waiver pool — if the pool is weak, the "best" player still scores 100 but the absolute quality is lower. This is appropriate because the question is "who should I grab from what's available," not "how good is this player in absolute terms."
 
 Players who improve your weakest categories score highest.
 
@@ -95,7 +168,7 @@ Response:
     "category_ranks": {"HR": 4, "RBI": 8, "AVG": 6},
     "category_needs": {"HR": 0.3, "RBI": 0.9, "AVG": 0.6}
   },
-  "league_comparison": [
+  "categories": [
     {
       "category": "HR",
       "my_value": 142,
@@ -105,16 +178,6 @@ Response:
       "gap_to_next": null,
       "gap_below": null,
       "points_available": null
-    }
-  ],
-  "roto_gaps": [
-    {
-      "category": "K",
-      "my_value": 1180,
-      "rank": 4,
-      "gap_to_next_rank": 22,
-      "gap_below": 15,
-      "points_available": 1
     }
   ],
   "current_matchup": {
@@ -127,8 +190,8 @@ Response:
 ```
 
 Notes:
-- `roto_gaps` only populated for roto leagues, `null` for H2H
-- `current_matchup` only populated for H2H leagues, `null` for roto
+- `categories` is a single unified array. For roto leagues, `gap_to_next`, `gap_below`, and `points_available` are populated. For H2H leagues, those fields are `null`.
+- `current_matchup` only populated for H2H leagues, `null` for roto. Opponent determined by calling `yahoo.client.get_matchup()` at request time to fetch the current week's H2H opponent from Yahoo's API.
 
 ### Enhanced Endpoint: Waivers
 
@@ -136,7 +199,7 @@ Notes:
 GET /api/waivers/{league_id}?position={position}
 ```
 
-Each player in the response gains:
+The existing response structure (position-grouped `positions` dict) is preserved. Each player object gains new fields:
 ```json
 {
   "value_score": 78,
@@ -147,7 +210,7 @@ Each player in the response gains:
 }
 ```
 
-Default sort changes to `value_score` descending. Existing projection data remains in the response.
+Default sort within each position group changes to `value_score` descending. Existing projection data and all other fields remain unchanged.
 
 ### New Route File
 
@@ -177,7 +240,7 @@ Default sort changes to `value_score` descending. Existing projection data remai
 | R | 680 | 5th | +8 R to 4th, +12 to 3rd | 20 R ahead of 6th | 2 pts |
 
 **H2H matchup panel** (informational only):
-- Current week's opponent
+- Current week's opponent (fetched from Yahoo API)
 - Category-by-category projected comparison (win/lose/toss-up)
 - Does NOT affect value scores
 
@@ -196,6 +259,7 @@ Default sort changes to `value_score` descending. Existing projection data remai
 - Click/expand a player row to reveal per-category impact breakdown
 - Breakdown shows: each category's projected contribution, impact score, and need level
 - Existing projection columns remain
+- Existing position-grouped response structure preserved (additive fields only)
 
 ### Navigation
 
@@ -206,6 +270,7 @@ Default sort changes to `value_score` descending. Existing projection data remai
 
 **In scope:**
 - Value engine with three layers (projection, needs, scoring)
+- Stat mapping dict (Yahoo → FanGraphs) with stat classification
 - Team Analysis page with radar chart and detail table
 - Waivers page needs panel and value score integration
 - Both H2H and roto format support
