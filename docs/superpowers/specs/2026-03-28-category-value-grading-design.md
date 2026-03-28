@@ -21,6 +21,27 @@ A value engine that grades players based on how much they help your specific fan
 
 `UserLeague.scoring_categories` stores the raw Yahoo API `stat_categories` dict as JSON (via `json.dumps()` in `yahoo/sync.py`). This is a nested structure from Yahoo's settings API, not a flat list of stat names. The value engine must parse this to extract canonical stat abbreviations.
 
+Example of the Yahoo `stat_categories` structure (abbreviated):
+```json
+{
+  "stats": [
+    {"stat": {"stat_id": 60, "enabled": "1", "name": "Hits/At Bats", "display_name": "H/AB", "sort_order": "1", "position_type": "B"}},
+    {"stat": {"stat_id": 7, "enabled": "1", "name": "Runs", "display_name": "R", "sort_order": "1", "position_type": "B"}},
+    {"stat": {"stat_id": 12, "enabled": "1", "name": "Home Runs", "display_name": "HR", "sort_order": "1", "position_type": "B"}},
+    {"stat": {"stat_id": 13, "enabled": "1", "name": "Runs Batted In", "display_name": "RBI", "sort_order": "1", "position_type": "B"}},
+    {"stat": {"stat_id": 16, "enabled": "1", "name": "Stolen Bases", "display_name": "SB", "sort_order": "1", "position_type": "B"}},
+    {"stat": {"stat_id": 3, "enabled": "1", "name": "Batting Average", "display_name": "AVG", "sort_order": "1", "position_type": "B"}},
+    {"stat": {"stat_id": 28, "enabled": "1", "name": "Wins", "display_name": "W", "sort_order": "1", "position_type": "P"}},
+    {"stat": {"stat_id": 32, "enabled": "1", "name": "Saves", "display_name": "SV", "sort_order": "1", "position_type": "P"}},
+    {"stat": {"stat_id": 42, "enabled": "1", "name": "Strikeouts", "display_name": "K", "sort_order": "1", "position_type": "P"}},
+    {"stat": {"stat_id": 26, "enabled": "1", "name": "Earned Run Average", "display_name": "ERA", "sort_order": "0", "position_type": "P"}},
+    {"stat": {"stat_id": 27, "enabled": "1", "name": "WHIP", "display_name": "WHIP", "sort_order": "0", "position_type": "P"}}
+  ]
+}
+```
+
+The engine should extract `display_name` from each enabled stat entry. The `position_type` field (`"B"` for batters, `"P"` for pitchers) can be used to validate stat routing. The `sort_order` field indicates direction: `"1"` = higher is better, `"0"` = lower is better — this can cross-check against the `LOWER_IS_BETTER` set.
+
 ### FanGraphs Projection Column Names
 
 FanGraphs projections are stored as flat dicts with CSV column headers as keys in `PlayerStats.stats` JSON:
@@ -66,7 +87,7 @@ STAT_MAPPING: dict[str, str] = {
 }
 ```
 
-At startup, the engine parses `scoring_categories` JSON, extracts stat display names or abbreviations, and maps each to a FanGraphs key via this dict. Unknown categories are logged and skipped.
+At request time, the engine parses `scoring_categories` JSON, extracts `display_name` from each enabled stat entry, and maps each to a FanGraphs key via this dict. Unknown categories are logged and skipped.
 
 ### Stat Classification
 
@@ -75,12 +96,12 @@ Each stat is classified as counting or rate, and whether lower is better (for pi
 ```python
 RATE_STATS: set[str] = {"AVG", "OBP", "SLG", "OPS", "ERA", "WHIP", "K/9", "BB/9", "FIP"}
 LOWER_IS_BETTER: set[str] = {"ERA", "WHIP", "BB/9"}
-PITCHING_STATS: set[str] = {"W", "L", "SV", "HLD", "IP", "SO", "QS", "ERA", "WHIP", "K/9", "BB/9", "FIP"}
+PITCHING_STATS: set[str] = {"W", "L", "SV", "HLD", "IP", "SO", "QS", "ERA", "WHIP", "K/9", "BB/9", "FIP", "BB"}
 ```
 
 Rate stats use weighted averages (by PA for batting, IP for pitching) when aggregating team totals. Counting stats are summed.
 
-Two-way players (e.g., Ohtani) may have both batting and pitching projections. Both are included — batting projections contribute to batting categories, pitching projections contribute to pitching categories, using the `PITCHING_STATS` set to route correctly.
+Two-way players (e.g., Ohtani) may have both batting and pitching projections. Both are included — batting projections contribute to batting categories, pitching projections contribute to pitching categories. Routing uses Yahoo's `position_type` field (`"B"` or `"P"`) from the scoring categories as the primary signal, with the `PITCHING_STATS` set as fallback. Stats like `BB` that exist in both batting and pitching projections are routed to the correct source based on which category context they appear in.
 
 ## Value Engine Architecture
 
