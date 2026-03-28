@@ -129,72 +129,139 @@ async def import_prospects_csv(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db_session),
 ):
-    """Import prospect rankings from a FanGraphs-style CSV.
+    """Import prospect rankings from a FanGraphs 'The Board' CSV.
 
-    Expected columns (flexible): Name/Player, Team/Org, Level, Rank, ETA
+    Expected columns: Name, Org, Pos, FV, Current Level, ETA, Dynasty Rank,
+    Re-Draft Rank, Trend, Age, Ht, Wt, B, T, Report, Video, PlayerId
     """
     content = await file.read()
     text = content.decode("utf-8-sig")
     reader = csv.DictReader(io.StringIO(text))
 
     imported = 0
+    updated = 0
     skipped = 0
 
     for row in reader:
-        # Flexible column mapping
+        # Flexible column mapping — supports both FanGraphs "The Board" and simpler formats
         name = row.get("Name") or row.get("Player") or row.get("name") or ""
-        org = row.get("Team") or row.get("Org") or row.get("org") or row.get("Organization") or ""
-        level = row.get("Level") or row.get("level") or ""
-        rank_str = row.get("Rank") or row.get("rank") or row.get("#") or ""
+        org = row.get("Org") or row.get("Team") or row.get("org") or row.get("Organization") or ""
+        level = (
+            row.get("Current Level")
+            or row.get("Level")
+            or row.get("level")
+            or ""
+        )
+        rank_str = (
+            row.get("Dynasty Rank")
+            or row.get("Rank")
+            or row.get("rank")
+            or row.get("#")
+            or ""
+        )
+        redraft_rank_str = row.get("Re-Draft Rank") or ""
         eta = row.get("ETA") or row.get("eta") or ""
+        position = row.get("Pos") or row.get("Position") or row.get("position") or ""
+        fv_str = row.get("FV") or ""
+        report = row.get("Report") or ""
+        video = row.get("Video") or ""
+        trend = row.get("Trend") or ""
+        age = row.get("Age") or ""
+        height = row.get("Ht") or ""
+        weight = row.get("Wt") or ""
+        bats = row.get("B") or row.get("Bats") or ""
+        throws = row.get("T") or row.get("Throws") or ""
+        player_id_str = row.get("PlayerId") or row.get("playerid") or ""
 
         if not name:
             skipped += 1
             continue
 
-        # Try to find the player in our DB
+        # Parse numeric fields
+        try:
+            rank = int(rank_str) if rank_str else None
+        except ValueError:
+            rank = None
+        try:
+            redraft_rank = int(redraft_rank_str) if redraft_rank_str else None
+        except ValueError:
+            redraft_rank = None
+        try:
+            fv = int(fv_str) if fv_str else None
+        except ValueError:
+            fv = None
+
+        # Find or create player
         result = await db.execute(
             select(Player).where(Player.full_name == name.strip())
         )
         player = result.scalar_one_or_none()
 
         if not player:
-            # Create a minimal player record
             player = Player(
                 full_name=name.strip(),
                 team=org.strip() if org else None,
-                position=row.get("Position") or row.get("Pos") or None,
+                position=position.strip() if position else None,
+                bats=bats.strip() if bats else None,
+                throws=throws.strip() if throws else None,
+                fangraphs_id_str=player_id_str.strip() if player_id_str else None,
                 status="minors",
                 is_prospect=1,
             )
             db.add(player)
             await db.flush()
+        else:
+            # Update player fields from CSV
+            if position:
+                player.position = position.strip()
+            if bats:
+                player.bats = bats.strip()
+            if throws:
+                player.throws = throws.strip()
+            if player_id_str:
+                player.fangraphs_id_str = player_id_str.strip()
+            player.is_prospect = 1
 
-        # Check if already on watchlist
-        existing = await db.execute(
+        # Check if prospect already exists — update instead of skipping
+        existing_result = await db.execute(
             select(Prospect).where(Prospect.player_id == player.id)
         )
-        if existing.scalar_one_or_none():
-            skipped += 1
-            continue
+        existing = existing_result.scalar_one_or_none()
 
-        try:
-            rank = int(rank_str) if rank_str else None
-        except ValueError:
-            rank = None
-
-        prospect = Prospect(
-            player_id=player.id,
-            org=org.strip() or "Unknown",
-            level=level.strip(),
-            user_rank=rank,
-            eta=eta.strip() if eta else None,
-            on_40_man=0,
-        )
-        db.add(prospect)
-        player.is_prospect = 1
-        imported += 1
+        if existing:
+            existing.org = org.strip() or existing.org
+            existing.level = level.strip() or existing.level
+            existing.fangraphs_rank = rank if rank is not None else existing.fangraphs_rank
+            existing.redraft_rank = redraft_rank if redraft_rank is not None else existing.redraft_rank
+            existing.eta = eta.strip() if eta else existing.eta
+            existing.fv = fv if fv is not None else existing.fv
+            existing.scouting_report = report.strip() if report else existing.scouting_report
+            existing.video_url = video.strip() if video else existing.video_url
+            existing.trend = trend.strip() if trend else existing.trend
+            existing.age = age.strip() if age else existing.age
+            existing.height = height.strip() if height else existing.height
+            existing.weight = weight.strip() if weight else existing.weight
+            updated += 1
+        else:
+            prospect = Prospect(
+                player_id=player.id,
+                org=org.strip() or "Unknown",
+                level=level.strip(),
+                fangraphs_rank=rank,
+                redraft_rank=redraft_rank,
+                eta=eta.strip() if eta else None,
+                fv=fv,
+                scouting_report=report.strip() if report else None,
+                video_url=video.strip() if video else None,
+                trend=trend.strip() if trend else None,
+                age=age.strip() if age else None,
+                height=height.strip() if height else None,
+                weight=weight.strip() if weight else None,
+                on_40_man=0,
+            )
+            db.add(prospect)
+            imported += 1
 
     await db.commit()
-    logger.info(f"Imported {imported} prospects, skipped {skipped}")
-    return {"imported": imported, "skipped": skipped}
+    logger.info(f"Imported {imported}, updated {updated}, skipped {skipped}")
+    return {"imported": imported, "updated": updated, "skipped": skipped}
