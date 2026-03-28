@@ -74,7 +74,15 @@ CRON
 
 ## 7. Redeploying
 
+An SSH alias `ripken` is configured locally (`~/.ssh/config`) for the production server.
+
 ```bash
+ssh ripken "cd ~/ripken && git pull && docker compose up -d --build"
+```
+
+Or manually:
+```bash
+ssh ripken
 cd ~/ripken
 git pull
 docker compose up -d --build

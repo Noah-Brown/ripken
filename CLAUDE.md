@@ -30,8 +30,8 @@ Deployed on a Digital Ocean droplet (Ubuntu 24.04) via Docker Compose with three
 Production URL: `https://ripken.noahbrown.io`
 
 ```bash
-docker compose up -d --build     # Deploy/redeploy
-docker compose logs -f           # Tail logs
+ssh ripken "cd ~/ripken && git pull && docker compose up -d --build"   # Deploy from local
+ssh ripken "docker compose -f ~/ripken/docker-compose.yml logs -f"    # Tail logs
 ```
 
 Key production env vars: `SITE_ADDRESS`, `DASHBOARD_PASSWORD`, `SESSION_SECRET`, `FRONTEND_URL`, `ALLOWED_ORIGINS`, `NEXT_PUBLIC_API_URL`, `YAHOO_REDIRECT_URI`. See `.env.example` and `docs/DEPLOY.md`.
