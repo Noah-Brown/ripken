@@ -1,4 +1,7 @@
 {$SITE_ADDRESS:localhost} {
+    handle /api/auth/* {
+        reverse_proxy frontend:3000
+    }
     handle /api/* {
         reverse_proxy backend:8000
     }
