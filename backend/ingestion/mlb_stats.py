@@ -6,7 +6,7 @@ import logging
 from datetime import date
 
 import httpx
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -528,7 +528,7 @@ async def fetch_game_results(db: AsyncSession, game_id: int) -> None:
             player_id = result.scalar_one_or_none()
 
             if player_id is None:
-                # Insert a minimal player record
+                # Insert or update minimal player record (backfill team if missing)
                 ins = sqlite_insert(Player).values(
                     mlb_id=mlb_id,
                     full_name=person.get("fullName", "Unknown"),
@@ -536,7 +536,13 @@ async def fetch_game_results(db: AsyncSession, game_id: int) -> None:
                     position="P",
                     status="active",
                 )
-                ins = ins.on_conflict_do_nothing(index_elements=["mlb_id"])
+                ins = ins.on_conflict_do_update(
+                    index_elements=["mlb_id"],
+                    set_={
+                        "full_name": ins.excluded.full_name,
+                        "team": func.coalesce(Player.team, ins.excluded.team),
+                    },
+                )
                 await db.execute(ins)
                 await db.flush()
                 result = await db.execute(
