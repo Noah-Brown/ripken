@@ -203,7 +203,7 @@ function HomeContent() {
               </p>
             </div>
             <a
-              href="http://localhost:8000/auth/yahoo"
+              href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/auth/yahoo`}
               className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
             >
               Connect Yahoo
