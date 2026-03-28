@@ -113,16 +113,17 @@ async def fetch_milb_stats(mlb_id: int, season: int | None = None) -> list[dict]
 
 async def _fetch_milb_stats_for_season(mlb_id: int, season: int) -> list[dict]:
     """Fetch minor league stats for a specific season."""
-    sport_ids = ",".join(str(sid) for sid in MILB_SPORT_IDS)
     base = settings.mlb_stats_api_base
 
     results_by_level: dict[int, dict] = {}
 
     for group in ("hitting", "pitching"):
+        # Don't filter by sportId in the request — the API rejects comma-separated
+        # values. Instead, fetch all stats and filter to MiLB levels in code.
         url = (
             f"{base}/people/{mlb_id}/stats"
             f"?stats=season&season={season}&gameType=R"
-            f"&group={group}&sportId={sport_ids}"
+            f"&group={group}"
         )
         try:
             async with httpx.AsyncClient(timeout=15) as client:
