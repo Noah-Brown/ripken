@@ -42,6 +42,12 @@ async def job_sync_schedule():
     await _run_job("sync_schedule", run)
 
 
+async def job_sync_lineups():
+    from backend.ingestion.mlb_stats import fetch_lineups
+
+    await _run_job("sync_lineups", fetch_lineups)
+
+
 async def job_sync_rosters():
     from backend.ingestion.mlb_stats import fetch_rosters
 
@@ -132,6 +138,13 @@ def create_scheduler() -> AsyncIOScheduler:
     # MLB schedule — every 6 hours
     scheduler.add_job(job_sync_schedule, "interval", hours=6, id="sync_schedule")
 
+    # Game lineups — every 10 minutes
+    scheduler.add_job(
+        job_sync_lineups, "interval",
+        minutes=settings.lineup_check_interval_minutes,
+        id="sync_lineups",
+    )
+
     # MLB rosters — every 30 minutes
     scheduler.add_job(job_sync_rosters, "interval", minutes=30, id="sync_rosters")
 
@@ -199,6 +212,7 @@ async def run_startup_jobs():
     """Run critical jobs on startup so the dashboard isn't empty."""
     logger.info("Running startup data sync...")
     await job_sync_schedule()
+    await job_sync_lineups()
     await job_sync_probable_pitchers()
     await job_sync_rosters()
     await job_sync_yahoo_rosters()
