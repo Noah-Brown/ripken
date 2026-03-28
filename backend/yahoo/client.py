@@ -141,6 +141,59 @@ async def get_team_key(db: AsyncSession, league_key: str) -> str | None:
         return None
 
 
+async def get_league_teams(db: AsyncSession, league_key: str) -> list[dict]:
+    """Fetch all teams in a league with metadata."""
+    data = await _yahoo_get(db, f"/league/{league_key}/teams")
+    teams = []
+    try:
+        fc = data.get("fantasy_content", data)
+        league = fc.get("league", [])
+        if isinstance(league, list) and len(league) > 1:
+            teams_container = league[1].get("teams", {})
+            for k, v in teams_container.items():
+                if k == "count":
+                    continue
+                if isinstance(v, dict) and "team" in v:
+                    team_info = v["team"]
+                    if isinstance(team_info, list) and len(team_info) > 0:
+                        team_meta = team_info[0]
+                        if isinstance(team_meta, list):
+                            entry: dict = {}
+                            for item in team_meta:
+                                if isinstance(item, dict):
+                                    if "team_key" in item:
+                                        entry["team_key"] = item["team_key"]
+                                    if "name" in item:
+                                        entry["team_name"] = item["name"]
+                                    if "is_owned_by_current_login" in item:
+                                        entry["is_current_user"] = (
+                                            item["is_owned_by_current_login"] == 1
+                                        )
+                                    if "managers" in item:
+                                        mgrs = item["managers"]
+                                        if isinstance(mgrs, list) and mgrs:
+                                            mgr = (
+                                                mgrs[0].get("manager", {})
+                                                if isinstance(mgrs[0], dict)
+                                                else {}
+                                            )
+                                            entry["manager_name"] = mgr.get(
+                                                "nickname", ""
+                                            )
+                                        elif isinstance(mgrs, dict):
+                                            mgr = mgrs.get("0", {}).get("manager", {})
+                                            entry["manager_name"] = mgr.get(
+                                                "nickname", ""
+                                            )
+                            if "team_key" in entry:
+                                entry.setdefault("is_current_user", False)
+                                entry.setdefault("manager_name", "")
+                                teams.append(entry)
+    except (KeyError, IndexError, TypeError):
+        logger.exception("Failed to parse league teams response.")
+    return teams
+
+
 async def get_roster(db: AsyncSession, team_key: str) -> list[dict]:
     """Fetch roster players for a team."""
     data = await _yahoo_get(db, f"/team/{team_key}/roster/players")
