@@ -3,10 +3,16 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { fetchApi } from "@/lib/api";
+import type { LeagueInfo } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+interface Ownership {
+  team_name: string;
+  is_mine: boolean;
+}
 
 interface Reliever {
   player_id: number;
@@ -15,6 +21,7 @@ interface Reliever {
   throws: string | null;
   status: string;
   is_rostered: boolean;
+  ownership: Ownership | null;
   role: string;
   confidence: string;
   available_tonight: boolean;
@@ -149,14 +156,26 @@ function RelieverRow({
         <div className="flex items-center gap-1.5">
           <span
             className={`font-medium text-sm ${
-              r.is_rostered
+              r.ownership?.is_mine || (!r.ownership && r.is_rostered)
                 ? "text-green-600 dark:text-green-400"
                 : ""
             }`}
           >
             {r.full_name}
           </span>
-          {r.is_rostered && (
+          {r.ownership?.is_mine && (
+            <span
+              className="h-1.5 w-1.5 rounded-full bg-green-500 flex-shrink-0"
+              title="On your roster"
+            />
+          )}
+          {r.ownership && !r.ownership.is_mine && (
+            <span
+              className="h-1.5 w-1.5 rounded-full bg-amber-500 flex-shrink-0"
+              title={r.ownership.team_name}
+            />
+          )}
+          {!r.ownership && r.is_rostered && (
             <span
               className="h-1.5 w-1.5 rounded-full bg-green-500 flex-shrink-0"
               title="On your roster"
@@ -309,18 +328,27 @@ export default function BullpenPage() {
   const [viewMode, setViewMode] = useState<"team" | "flat">("team");
   const [sortCol, setSortCol] = useState<SortKey>("role");
   const [sortAsc, setSortAsc] = useState(true);
+  const [leagues, setLeagues] = useState<LeagueInfo[]>([]);
+  const [selectedLeague, setSelectedLeague] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetchApi<{ leagues: LeagueInfo[] }>("/api/leagues")
+      .then((res) => setLeagues(res.leagues))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams();
     if (filterRole) params.set("role", filterRole);
     if (filterTeam) params.set("team", filterTeam);
     if (rosterOnly) params.set("roster_only", "true");
+    if (selectedLeague) params.set("league_id", String(selectedLeague));
     const qs = params.toString();
 
     fetchApi<BullpenResponse>(`/api/bullpen${qs ? `?${qs}` : ""}`)
       .then(setData)
       .catch((e) => setError(e.message));
-  }, [filterRole, filterTeam, rosterOnly]);
+  }, [filterRole, filterTeam, rosterOnly, selectedLeague]);
 
   const teams = data
     ? [...new Set(data.relievers.map((r) => r.team).filter(Boolean))].sort()
@@ -410,6 +438,22 @@ export default function BullpenPage() {
 
         {/* Filters */}
         <div className="mb-6 flex flex-wrap items-center gap-3">
+          {leagues.length > 0 && (
+            <select
+              value={selectedLeague ?? ""}
+              onChange={(e) =>
+                setSelectedLeague(e.target.value ? Number(e.target.value) : null)
+              }
+              className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-800"
+            >
+              <option value="">No League</option>
+              {leagues.map((lg) => (
+                <option key={lg.id} value={lg.id}>
+                  {lg.name}
+                </option>
+              ))}
+            </select>
+          )}
           <select
             value={filterRole}
             onChange={(e) => setFilterRole(e.target.value)}
