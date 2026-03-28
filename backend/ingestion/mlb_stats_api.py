@@ -112,29 +112,35 @@ async def fetch_milb_stats(mlb_id: int, season: int | None = None) -> list[dict]
 
 
 async def _fetch_milb_stats_for_season(mlb_id: int, season: int) -> list[dict]:
-    """Fetch minor league stats for a specific season."""
+    """Fetch minor league stats for a specific season.
+
+    The MLB Stats API rejects comma-separated sportId values and returns no
+    MiLB data when sportId is omitted. Query each level individually.
+    """
     base = settings.mlb_stats_api_base
 
     results_by_level: dict[int, dict] = {}
 
-    for group in ("hitting", "pitching"):
-        # Don't filter by sportId in the request — the API rejects comma-separated
-        # values. Instead, fetch all stats and filter to MiLB levels in code.
-        url = (
-            f"{base}/people/{mlb_id}/stats"
-            f"?stats=season&season={season}&gameType=R"
-            f"&group={group}"
-        )
-        try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                data = resp.json()
-        except (httpx.HTTPError, Exception) as e:
-            logger.warning(f"MLB API stats fetch failed for mlb_id={mlb_id} group={group}: {e}")
-            continue
+    async with httpx.AsyncClient(timeout=15) as client:
+        for sport_id in MILB_SPORT_IDS:
+            for group in ("hitting", "pitching"):
+                url = (
+                    f"{base}/people/{mlb_id}/stats"
+                    f"?stats=season&season={season}&gameType=R"
+                    f"&group={group}&sportId={sport_id}"
+                )
+                try:
+                    resp = await client.get(url)
+                    resp.raise_for_status()
+                    data = resp.json()
+                except (httpx.HTTPError, Exception) as e:
+                    logger.warning(
+                        f"MLB API stats fetch failed for mlb_id={mlb_id} "
+                        f"group={group} sportId={sport_id}: {e}"
+                    )
+                    continue
 
-        _parse_splits(data, group, results_by_level)
+                _parse_splits(data, group, results_by_level)
 
     # Sort by level (AAA first)
     return sorted(results_by_level.values(), key=lambda x: x["sport_id"])
