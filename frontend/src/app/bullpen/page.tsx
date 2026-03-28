@@ -1,19 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { fetchApi } from "@/lib/api";
 
-interface UsageDay {
-  date: string;
-  innings_pitched: number | null;
-  pitches: number | null;
-  earned_runs: number | null;
-  strikeouts: number | null;
-  save: number;
-  hold: number;
-  blown_save: number;
-}
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface Reliever {
   player_id: number;
@@ -24,23 +17,38 @@ interface Reliever {
   role: string;
   confidence: string;
   available_tonight: boolean;
-  saves_last_14d: number;
-  holds_last_14d: number;
-  appearances_last_7d: number;
-  avg_leverage_last_14d: number | null;
-  days_since_last_appearance: number | null;
+  season_g: number;
+  season_ip: number;
+  season_era: number;
+  season_sv: number;
+  season_hld: number;
+  season_k9: number;
+  season_k_pct: number;
+  daily_pitches: (number | null)[];
   pitches_last_3d: number;
   pitches_last_7d: number;
-  evidence: Record<string, unknown>;
-  usage_heatmap: UsageDay[];
+  days_since_last_appearance: number | null;
 }
 
 interface BullpenResponse {
   date: string;
+  day_columns: string[];
   relievers: Reliever[];
 }
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
 const ROLE_ORDER = ["closer", "setup", "middle", "long", "mop_up"];
+
+const ROLE_PRIORITY: Record<string, number> = {
+  closer: 0,
+  setup: 1,
+  middle: 2,
+  long: 3,
+  mop_up: 4,
+};
 
 const roleBadge: Record<string, { bg: string; text: string }> = {
   closer: { bg: "bg-red-100 dark:bg-red-950", text: "text-red-700 dark:text-red-300" },
@@ -56,121 +64,235 @@ const confidenceDot: Record<string, string> = {
   low: "bg-zinc-400",
 };
 
-function UsageHeatmap({ days }: { days: UsageDay[] }) {
-  // Build a 14-day grid
-  const today = new Date();
-  const cells: { date: string; pitched: boolean; pitches: number }[] = [];
-  const dayMap = new Map(days.map((d) => [d.date, d]));
+type SortKey =
+  | "pitcher"
+  | "team"
+  | "role"
+  | "g"
+  | "ip"
+  | "era"
+  | "sv"
+  | "hld"
+  | "k9"
+  | "k_pct";
 
-  for (let i = 13; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().slice(0, 10);
-    const usage = dayMap.get(dateStr);
-    cells.push({
-      date: dateStr,
-      pitched: !!usage,
-      pitches: usage?.pitches ?? 0,
-    });
+function sortValue(r: Reliever, key: SortKey): number | string {
+  switch (key) {
+    case "pitcher": return r.full_name;
+    case "team": return r.team || "";
+    case "role": return ROLE_PRIORITY[r.role] ?? 99;
+    case "g": return r.season_g;
+    case "ip": return r.season_ip;
+    case "era": return r.season_era;
+    case "sv": return r.season_sv;
+    case "hld": return r.season_hld;
+    case "k9": return r.season_k9;
+    case "k_pct": return r.season_k_pct;
   }
+}
 
+function formatDate(iso: string): string {
+  const [, m, d] = iso.split("-");
+  return `${parseInt(m)}/${parseInt(d)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Components
+// ---------------------------------------------------------------------------
+
+function SortHeader({
+  label,
+  sortKey,
+  currentSort,
+  sortAsc,
+  onSort,
+  className = "",
+}: {
+  label: string;
+  sortKey: SortKey;
+  currentSort: SortKey;
+  sortAsc: boolean;
+  onSort: (key: SortKey) => void;
+  className?: string;
+}) {
+  const active = currentSort === sortKey;
   return (
-    <div className="flex gap-0.5">
-      {cells.map((c) => (
-        <div
-          key={c.date}
-          className={`h-4 w-3 rounded-sm ${
-            c.pitched
-              ? c.pitches > 25
-                ? "bg-red-400 dark:bg-red-600"
-                : "bg-green-400 dark:bg-green-600"
-              : "bg-zinc-100 dark:bg-zinc-800"
-          }`}
-          title={`${c.date}${c.pitched ? ` — ${c.pitches}P` : ""}`}
-        />
-      ))}
-    </div>
+    <th
+      className={`px-2 py-2 font-medium text-zinc-500 dark:text-zinc-400 cursor-pointer select-none hover:text-zinc-700 dark:hover:text-zinc-200 ${className}`}
+      onClick={() => onSort(sortKey)}
+    >
+      {label}
+      {active && (
+        <span className="ml-0.5 text-xs">{sortAsc ? "\u25B2" : "\u25BC"}</span>
+      )}
+    </th>
   );
 }
 
-function RelieverRow({ r }: { r: Reliever }) {
+function RelieverRow({
+  r,
+  dayColumns,
+  showTeam,
+}: {
+  r: Reliever;
+  dayColumns: string[];
+  showTeam: boolean;
+}) {
   const badge = roleBadge[r.role] ?? roleBadge.mop_up;
   const confDot = confidenceDot[r.confidence] ?? confidenceDot.low;
 
   return (
-    <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/50">
-      <td className="px-3 py-3">
-        <div className="flex items-center gap-2">
-          <span className={`font-medium ${r.is_rostered ? "text-green-600 dark:text-green-400" : ""}`}>
+    <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/50 hover:bg-zinc-50 dark:hover:bg-zinc-800/30">
+      {/* Pitcher */}
+      <td className="px-2 py-2">
+        <div className="flex items-center gap-1.5">
+          <span
+            className={`font-medium text-sm ${
+              r.is_rostered
+                ? "text-green-600 dark:text-green-400"
+                : ""
+            }`}
+          >
             {r.full_name}
           </span>
-          {r.throws && (
-            <span className="text-xs text-zinc-400">({r.throws})</span>
-          )}
           {r.is_rostered && (
-            <span className="h-1.5 w-1.5 rounded-full bg-green-500" title="On your roster" />
+            <span
+              className="h-1.5 w-1.5 rounded-full bg-green-500 flex-shrink-0"
+              title="On your roster"
+            />
           )}
         </div>
-        <span className="text-xs text-zinc-400 dark:text-zinc-500">{r.team}</span>
-      </td>
-      <td className="px-3 py-3">
-        <div className="flex items-center gap-1.5">
-          <span className={`rounded px-2 py-0.5 text-xs font-medium ${badge.bg} ${badge.text}`}>
-            {r.role}
+        {showTeam && r.team && (
+          <span className="text-xs text-zinc-400 dark:text-zinc-500">
+            {r.team}
           </span>
-          <span className={`h-2 w-2 rounded-full ${confDot}`} title={r.confidence} />
-        </div>
-      </td>
-      <td className="px-3 py-3 text-center">
-        {r.available_tonight ? (
-          <span className="text-xs font-medium text-green-600 dark:text-green-400">Yes</span>
-        ) : (
-          <span className="text-xs text-red-500">No</span>
         )}
       </td>
-      <td className="px-3 py-3 text-center font-mono text-sm">
-        {r.saves_last_14d}
+
+      {/* THR */}
+      <td className="px-2 py-2 text-center text-xs text-zinc-500 dark:text-zinc-400">
+        {r.throws || "—"}
       </td>
-      <td className="px-3 py-3 text-center font-mono text-sm">
-        {r.holds_last_14d}
-      </td>
-      <td className="px-3 py-3 text-center font-mono text-sm">
-        {r.appearances_last_7d}
-      </td>
-      <td className="px-3 py-3">
-        <div className="flex items-center gap-2">
-          <div className="flex-1">
-            <div className="h-2 w-full rounded-full bg-zinc-100 dark:bg-zinc-800">
-              <div
-                className={`h-2 rounded-full ${
-                  r.pitches_last_3d > 60 ? "bg-red-400" : r.pitches_last_3d > 30 ? "bg-amber-400" : "bg-green-400"
-                }`}
-                style={{ width: `${Math.min((r.pitches_last_3d / 75) * 100, 100)}%` }}
-              />
-            </div>
-          </div>
-          <span className="text-xs text-zinc-400 w-8 text-right">{r.pitches_last_3d}P</span>
-        </div>
-        <div className="flex items-center gap-2 mt-1">
-          <div className="flex-1">
-            <div className="h-2 w-full rounded-full bg-zinc-100 dark:bg-zinc-800">
-              <div
-                className={`h-2 rounded-full ${
-                  r.pitches_last_7d > 120 ? "bg-red-400" : r.pitches_last_7d > 60 ? "bg-amber-400" : "bg-green-400"
-                }`}
-                style={{ width: `${Math.min((r.pitches_last_7d / 150) * 100, 100)}%` }}
-              />
-            </div>
-          </div>
-          <span className="text-xs text-zinc-400 w-8 text-right">{r.pitches_last_7d}P</span>
+
+      {/* Role */}
+      <td className="px-2 py-2">
+        <div className="flex items-center gap-1">
+          <span
+            className={`rounded px-1.5 py-0.5 text-xs font-medium ${badge.bg} ${badge.text}`}
+          >
+            {r.role}
+          </span>
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${confDot}`}
+            title={r.confidence}
+          />
         </div>
       </td>
-      <td className="px-3 py-3">
-        <UsageHeatmap days={r.usage_heatmap} />
+
+      {/* Season stats */}
+      <td className="px-2 py-2 text-center font-mono text-xs">{r.season_g}</td>
+      <td className="px-2 py-2 text-center font-mono text-xs">
+        {r.season_ip.toFixed(1)}
       </td>
+      <td className="px-2 py-2 text-center font-mono text-xs">
+        {r.season_era.toFixed(2)}
+      </td>
+      <td className="px-2 py-2 text-center font-mono text-xs">{r.season_sv}</td>
+      <td className="px-2 py-2 text-center font-mono text-xs">{r.season_hld}</td>
+      <td className="px-2 py-2 text-center font-mono text-xs">
+        {r.season_k9.toFixed(2)}
+      </td>
+      <td className="px-2 py-2 text-center font-mono text-xs">
+        {r.season_k_pct > 0 ? r.season_k_pct.toFixed(3).replace(/^0/, "") : ".000"}
+      </td>
+
+      {/* Daily pitch counts */}
+      {dayColumns.map((d, i) => {
+        const p = r.daily_pitches[i];
+        return (
+          <td
+            key={d}
+            className={`px-1.5 py-2 text-center font-mono text-xs ${
+              p !== null && p > 25
+                ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                : ""
+            }`}
+          >
+            {p !== null ? p : ""}
+          </td>
+        );
+      })}
     </tr>
   );
 }
+
+function TableHead({
+  dayColumns,
+  viewMode,
+  sortCol,
+  sortAsc,
+  onSort,
+}: {
+  dayColumns: string[];
+  viewMode: "team" | "flat";
+  sortCol: SortKey;
+  sortAsc: boolean;
+  onSort: (key: SortKey) => void;
+}) {
+  const thClass =
+    "px-2 py-2 font-medium text-zinc-500 dark:text-zinc-400 text-xs";
+
+  if (viewMode === "team") {
+    return (
+      <thead>
+        <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50">
+          <th className={`${thClass} text-left`}>Pitcher</th>
+          <th className={`${thClass} text-center`}>THR</th>
+          <th className={`${thClass} text-left`}>Role</th>
+          <th className={`${thClass} text-center`}>G</th>
+          <th className={`${thClass} text-center`}>IP</th>
+          <th className={`${thClass} text-center`}>ERA</th>
+          <th className={`${thClass} text-center`}>SV</th>
+          <th className={`${thClass} text-center`}>HLD</th>
+          <th className={`${thClass} text-center`}>K/9</th>
+          <th className={`${thClass} text-center`}>K%</th>
+          {dayColumns.map((d) => (
+            <th key={d} className={`${thClass} text-center`}>
+              {formatDate(d)}
+            </th>
+          ))}
+        </tr>
+      </thead>
+    );
+  }
+
+  // Flat mode — sortable headers
+  return (
+    <thead>
+      <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50">
+        <SortHeader label="Pitcher" sortKey="pitcher" currentSort={sortCol} sortAsc={sortAsc} onSort={onSort} className="text-left text-xs" />
+        <th className={`${thClass} text-center`}>THR</th>
+        <SortHeader label="Role" sortKey="role" currentSort={sortCol} sortAsc={sortAsc} onSort={onSort} className="text-left text-xs" />
+        <SortHeader label="G" sortKey="g" currentSort={sortCol} sortAsc={sortAsc} onSort={onSort} className="text-center text-xs" />
+        <SortHeader label="IP" sortKey="ip" currentSort={sortCol} sortAsc={sortAsc} onSort={onSort} className="text-center text-xs" />
+        <SortHeader label="ERA" sortKey="era" currentSort={sortCol} sortAsc={sortAsc} onSort={onSort} className="text-center text-xs" />
+        <SortHeader label="SV" sortKey="sv" currentSort={sortCol} sortAsc={sortAsc} onSort={onSort} className="text-center text-xs" />
+        <SortHeader label="HLD" sortKey="hld" currentSort={sortCol} sortAsc={sortAsc} onSort={onSort} className="text-center text-xs" />
+        <SortHeader label="K/9" sortKey="k9" currentSort={sortCol} sortAsc={sortAsc} onSort={onSort} className="text-center text-xs" />
+        <SortHeader label="K%" sortKey="k_pct" currentSort={sortCol} sortAsc={sortAsc} onSort={onSort} className="text-center text-xs" />
+        {dayColumns.map((d) => (
+          <th key={d} className={`${thClass} text-center`}>
+            {formatDate(d)}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 
 export default function BullpenPage() {
   const [data, setData] = useState<BullpenResponse | null>(null);
@@ -178,6 +300,9 @@ export default function BullpenPage() {
   const [filterRole, setFilterRole] = useState<string>("");
   const [filterTeam, setFilterTeam] = useState<string>("");
   const [rosterOnly, setRosterOnly] = useState(false);
+  const [viewMode, setViewMode] = useState<"team" | "flat">("team");
+  const [sortCol, setSortCol] = useState<SortKey>("role");
+  const [sortAsc, setSortAsc] = useState(true);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -195,12 +320,70 @@ export default function BullpenPage() {
     ? [...new Set(data.relievers.map((r) => r.team).filter(Boolean))].sort()
     : [];
 
+  const filteredRelievers = data?.relievers ?? [];
+
+  // Team-grouped view
+  const teamGroups = useMemo(() => {
+    const groups: Record<string, Reliever[]> = {};
+    for (const r of filteredRelievers) {
+      const team = r.team || "???";
+      if (!groups[team]) groups[team] = [];
+      groups[team].push(r);
+    }
+    for (const t of Object.keys(groups)) {
+      groups[t].sort(
+        (a, b) => (ROLE_PRIORITY[a.role] ?? 99) - (ROLE_PRIORITY[b.role] ?? 99)
+      );
+    }
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+  }, [filteredRelievers]);
+
+  // Flat sorted view
+  const sortedRelievers = useMemo(() => {
+    const arr = [...filteredRelievers];
+    arr.sort((a, b) => {
+      const va = sortValue(a, sortCol);
+      const vb = sortValue(b, sortCol);
+      let cmp: number;
+      if (typeof va === "number" && typeof vb === "number") {
+        cmp = va - vb;
+      } else {
+        cmp = String(va).localeCompare(String(vb));
+      }
+      // Secondary sort by team then name for stability
+      if (cmp === 0) {
+        cmp = (a.team || "").localeCompare(b.team || "");
+      }
+      if (cmp === 0) {
+        cmp = a.full_name.localeCompare(b.full_name);
+      }
+      return sortAsc ? cmp : -cmp;
+    });
+    return arr;
+  }, [filteredRelievers, sortCol, sortAsc]);
+
+  function handleSort(key: SortKey) {
+    if (sortCol === key) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortCol(key);
+      setSortAsc(true);
+    }
+  }
+
+  const dayColumns = data?.day_columns ?? [];
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
       <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-4">
-            <Link href="/" className="text-2xl font-bold tracking-tight hover:opacity-80">Ripken</Link>
+            <Link
+              href="/"
+              className="text-2xl font-bold tracking-tight hover:opacity-80"
+            >
+              Ripken
+            </Link>
             <span className="text-sm text-zinc-400 dark:text-zinc-500">/</span>
             <span className="text-sm font-medium">Bullpen Monitor</span>
           </div>
@@ -214,7 +397,9 @@ export default function BullpenPage() {
 
       <main className="mx-auto max-w-7xl px-6 py-8">
         {error && (
-          <p className="mb-4 rounded-lg bg-red-50 p-4 text-red-700 dark:bg-red-950 dark:text-red-300">{error}</p>
+          <p className="mb-4 rounded-lg bg-red-50 p-4 text-red-700 dark:bg-red-950 dark:text-red-300">
+            {error}
+          </p>
         )}
 
         {/* Filters */}
@@ -226,7 +411,9 @@ export default function BullpenPage() {
           >
             <option value="">All Roles</option>
             {ROLE_ORDER.map((r) => (
-              <option key={r} value={r}>{r}</option>
+              <option key={r} value={r}>
+                {r}
+              </option>
             ))}
           </select>
           <select
@@ -236,7 +423,9 @@ export default function BullpenPage() {
           >
             <option value="">All Teams</option>
             {teams.map((t) => (
-              <option key={t} value={t!}>{t}</option>
+              <option key={t} value={t!}>
+                {t}
+              </option>
             ))}
           </select>
           <button
@@ -249,33 +438,64 @@ export default function BullpenPage() {
           >
             {rosterOnly ? "My Relievers" : "All Relievers"}
           </button>
+          <button
+            onClick={() => setViewMode(viewMode === "team" ? "flat" : "team")}
+            className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+          >
+            {viewMode === "team" ? "By Team" : "All Players"}
+          </button>
         </div>
 
-        {!data && !error && <p className="text-zinc-500 dark:text-zinc-400">Loading...</p>}
-
-        {data && data.relievers.length === 0 && (
-          <p className="text-zinc-500 dark:text-zinc-400">No reliever classifications available yet.</p>
+        {!data && !error && (
+          <p className="text-zinc-500 dark:text-zinc-400">Loading...</p>
         )}
 
-        {data && data.relievers.length > 0 && (
+        {data && filteredRelievers.length === 0 && (
+          <p className="text-zinc-500 dark:text-zinc-400">
+            No reliever classifications available yet.
+          </p>
+        )}
+
+        {data && filteredRelievers.length > 0 && (
           <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
             <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50">
-                  <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">Pitcher</th>
-                  <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">Role</th>
-                  <th className="px-3 py-2 text-center font-medium text-zinc-500 dark:text-zinc-400">Avail</th>
-                  <th className="px-3 py-2 text-center font-medium text-zinc-500 dark:text-zinc-400">SV</th>
-                  <th className="px-3 py-2 text-center font-medium text-zinc-500 dark:text-zinc-400">HLD</th>
-                  <th className="px-3 py-2 text-center font-medium text-zinc-500 dark:text-zinc-400">App/7d</th>
-                  <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400 w-36">Workload</th>
-                  <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">14d Usage</th>
-                </tr>
-              </thead>
+              <TableHead
+                dayColumns={dayColumns}
+                viewMode={viewMode}
+                sortCol={sortCol}
+                sortAsc={sortAsc}
+                onSort={handleSort}
+              />
               <tbody className="bg-white dark:bg-zinc-900">
-                {data.relievers.map((r) => (
-                  <RelieverRow key={r.player_id} r={r} />
-                ))}
+                {viewMode === "team"
+                  ? teamGroups.map(([team, relievers]) => (
+                      <Fragment key={team}>
+                        <tr className="bg-zinc-100 dark:bg-zinc-800/60">
+                          <td
+                            colSpan={10 + dayColumns.length}
+                            className="px-2 py-1.5 text-xs font-bold tracking-wide text-zinc-600 dark:text-zinc-300"
+                          >
+                            {team}
+                          </td>
+                        </tr>
+                        {relievers.map((r) => (
+                          <RelieverRow
+                            key={r.player_id}
+                            r={r}
+                            dayColumns={dayColumns}
+                            showTeam={false}
+                          />
+                        ))}
+                      </Fragment>
+                    ))
+                  : sortedRelievers.map((r) => (
+                      <RelieverRow
+                        key={r.player_id}
+                        r={r}
+                        dayColumns={dayColumns}
+                        showTeam={true}
+                      />
+                    ))}
               </tbody>
             </table>
           </div>
@@ -283,7 +503,8 @@ export default function BullpenPage() {
 
         {data && (
           <p className="mt-4 text-xs text-zinc-400 dark:text-zinc-500">
-            Classifications as of {data.date}. Heatmap: green = pitched, red = high pitch count (&gt;25P).
+            Classifications as of {data.date}. Red cells indicate high pitch
+            count (&gt;25P).
           </p>
         )}
       </main>
