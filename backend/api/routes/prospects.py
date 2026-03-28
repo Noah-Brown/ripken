@@ -208,6 +208,60 @@ async def get_prospect_stats(
     }
 
 
+@router.post("/prospects/refresh-stats")
+async def refresh_all_prospect_stats(
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Batch-resolve MLB IDs and fetch stats for all prospects."""
+    import asyncio
+
+    result = await db.execute(
+        select(Prospect, Player)
+        .join(Player, Prospect.player_id == Player.id)
+    )
+    rows = result.all()
+
+    resolved = 0
+    fetched = 0
+    failed = 0
+
+    for prospect, player in rows:
+        # Resolve MLB ID if missing
+        if not player.mlb_id:
+            mlb_id = await resolve_mlb_id(player.full_name)
+            if mlb_id:
+                player.mlb_id = mlb_id
+                resolved += 1
+            else:
+                failed += 1
+                continue
+            # Rate-limit to avoid hammering the API
+            await asyncio.sleep(0.3)
+
+        # Fetch stats if stale or missing
+        cache_fresh = False
+        if prospect.stats_fetched_at and prospect.minor_league_stats:
+            cache_age = datetime.now(timezone.utc) - prospect.stats_fetched_at.replace(
+                tzinfo=timezone.utc
+            )
+            cache_fresh = cache_age < timedelta(hours=6)
+
+        if not cache_fresh:
+            stats = await fetch_milb_stats(player.mlb_id)
+            prospect.minor_league_stats = json.dumps(stats)
+            prospect.stats_fetched_at = datetime.now(timezone.utc)
+            if stats:
+                fetched += 1
+            await asyncio.sleep(0.3)
+
+    await db.commit()
+    logger.info(
+        f"Prospect refresh: resolved {resolved} MLB IDs, "
+        f"fetched stats for {fetched}, failed to resolve {failed}"
+    )
+    return {"resolved": resolved, "fetched": fetched, "failed": failed, "total": len(rows)}
+
+
 @router.post("/prospects/import")
 async def import_prospects_csv(
     file: UploadFile = File(...),
