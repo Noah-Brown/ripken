@@ -212,29 +212,43 @@ async def get_prospect_stats(
 async def refresh_all_prospect_stats(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db_session),
+    limit: int = 50,
 ):
-    """Kick off background batch-resolve of MLB IDs and stats for all prospects."""
+    """Resolve MLB IDs and fetch stats for prospects that need it.
+
+    Processes `limit` prospects per call (default 50) to stay within memory
+    constraints on a small VPS. Call repeatedly to process all prospects.
+    """
+    # Find prospects needing work: no MLB ID, or stale/missing stats
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
     result = await db.execute(
         select(Prospect, Player)
         .join(Player, Prospect.player_id == Player.id)
+        .where(
+            (Player.mlb_id.is_(None))
+            | (Prospect.stats_fetched_at.is_(None))
+            | (Prospect.stats_fetched_at < stale_cutoff)
+        )
+        .limit(limit)
     )
     rows = result.all()
-    total = len(rows)
 
-    # Collect (prospect_id, player_id, player_name, mlb_id) tuples for background work
     work_items = [
         (prospect.id, player.id, player.full_name, player.mlb_id)
         for prospect, player in rows
     ]
 
+    if not work_items:
+        return {"status": "nothing_to_do", "total": 0}
+
     background_tasks.add_task(_refresh_prospect_stats_batch, work_items)
-    return {"status": "started", "total": total}
+    return {"status": "started", "total": len(work_items)}
 
 
 async def _refresh_prospect_stats_batch(
     work_items: list[tuple[int, int, str, int | None]],
 ) -> None:
-    """Background task: resolve MLB IDs and fetch stats in batches with commits."""
+    """Background task: resolve MLB IDs and fetch stats in small batches."""
     import asyncio
 
     from backend.database.connection import async_session
@@ -243,13 +257,12 @@ async def _refresh_prospect_stats_batch(
     fetched = 0
     failed = 0
 
-    # Process in batches of 20, committing after each batch
-    batch_size = 20
+    # Process in batches of 10, committing after each
+    batch_size = 10
     for i in range(0, len(work_items), batch_size):
         batch = work_items[i : i + batch_size]
         async with async_session() as db:
             for prospect_id, player_id, player_name, mlb_id in batch:
-                # Resolve MLB ID if missing
                 if not mlb_id:
                     mlb_id = await resolve_mlb_id(player_name)
                     if mlb_id:
@@ -260,31 +273,25 @@ async def _refresh_prospect_stats_batch(
                     else:
                         failed += 1
                         continue
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(0.5)
 
-                # Fetch stats
                 prospect = await db.get(Prospect, prospect_id)
                 if not prospect:
                     continue
 
-                cache_fresh = False
-                if prospect.stats_fetched_at and prospect.minor_league_stats:
-                    cache_age = datetime.now(timezone.utc) - prospect.stats_fetched_at.replace(
-                        tzinfo=timezone.utc
-                    )
-                    cache_fresh = cache_age < timedelta(hours=6)
-
-                if not cache_fresh:
-                    stats = await fetch_milb_stats(mlb_id)
-                    prospect.minor_league_stats = json.dumps(stats)
-                    prospect.stats_fetched_at = datetime.now(timezone.utc)
-                    if stats:
-                        fetched += 1
-                    await asyncio.sleep(0.3)
+                stats = await fetch_milb_stats(mlb_id)
+                prospect.minor_league_stats = json.dumps(stats)
+                prospect.stats_fetched_at = datetime.now(timezone.utc)
+                if stats:
+                    fetched += 1
+                await asyncio.sleep(0.5)
 
             await db.commit()
 
-        logger.info(f"Prospect refresh batch {i // batch_size + 1}: processed {len(batch)} prospects")
+        logger.info(
+            f"Prospect refresh batch {i // batch_size + 1}: "
+            f"processed {len(batch)} prospects"
+        )
 
     logger.info(
         f"Prospect refresh complete: resolved {resolved} MLB IDs, "
