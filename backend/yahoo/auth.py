@@ -125,6 +125,10 @@ async def get_valid_token(db: AsyncSession) -> str | None:
             token_data = await refresh_access_token(account.yahoo_refresh_token)
             await store_tokens(db, token_data)
             return token_data["access_token"]
-        except httpx.HTTPStatusError:
-            logger.exception("Failed to refresh Yahoo token.")
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "Failed to refresh Yahoo token (HTTP %s). "
+                "Re-authenticate at /auth/yahoo.",
+                exc.response.status_code,
+            )
             return None

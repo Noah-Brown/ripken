@@ -18,6 +18,8 @@ async def _run_job(name: str, coro_factory):
         async with async_session() as db:
             await coro_factory(db)
         logger.info(f"Job [{name}] completed.")
+    except RuntimeError as exc:
+        logger.error(f"Job [{name}] failed: {exc}")
     except Exception:
         logger.exception(f"Job [{name}] failed.")
 
@@ -187,4 +189,5 @@ async def run_startup_jobs():
     await job_sync_schedule()
     await job_sync_probable_pitchers()
     await job_sync_rosters()
+    await job_sync_yahoo_rosters()
     logger.info("Startup sync complete.")
