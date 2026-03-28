@@ -6,7 +6,7 @@ import logging
 from datetime import date
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -214,8 +214,6 @@ async def fetch_game_lineups(db: AsyncSession, game_id: int) -> int:
 
         # Delete stale lineup entries for this game/team (late scratches)
         if upserted_player_ids:
-            from sqlalchemy import delete
-
             await db.execute(
                 delete(Lineup).where(
                     Lineup.game_id == game_id,
