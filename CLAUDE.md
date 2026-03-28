@@ -20,6 +20,22 @@ make lint             # ruff check backend/ shared/
 
 Setup requires `cp .env.example .env` and filling in Yahoo OAuth2 credentials.
 
+## Deployment
+
+Deployed on a Digital Ocean droplet (Ubuntu 24.04) via Docker Compose with three services:
+- **Caddy** — reverse proxy with automatic HTTPS (Let's Encrypt)
+- **backend** — FastAPI container
+- **frontend** — Next.js container (server-side rendering)
+
+Production URL: `https://ripken.noahbrown.io`
+
+```bash
+docker compose up -d --build     # Deploy/redeploy
+docker compose logs -f           # Tail logs
+```
+
+Key production env vars: `SITE_ADDRESS`, `DASHBOARD_PASSWORD`, `SESSION_SECRET`, `FRONTEND_URL`, `ALLOWED_ORIGINS`, `NEXT_PUBLIC_API_URL`, `YAHOO_REDIRECT_URI`. See `.env.example` and `docs/DEPLOY.md`.
+
 ## Architecture
 
 **Monorepo** with a Python FastAPI backend and Next.js 14 frontend communicating over REST.
@@ -56,4 +72,4 @@ Yahoo Fantasy data flows through OAuth2 (`/auth/yahoo/callback`) → `yahoo/` cl
 
 ## Development Status
 
-Phases 1-4 complete (foundation, Yahoo integration, core modules, smart features). Phase 5 (polish: mobile responsiveness, error handling, multi-user/Postgres migration) is not started. See `docs/BLUEPRINT.md` for full spec and algorithm details.
+Phases 1-4 complete (foundation, Yahoo integration, core modules, smart features). App is deployed to production on a VPS. Phase 5 (polish: mobile responsiveness, error handling, multi-user/Postgres migration) is partially started (deployment done). See `docs/BLUEPRINT.md` for full spec and algorithm details.
