@@ -5,7 +5,7 @@ description = "Fantasy baseball in-season dashboard"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.136.1",
-    "uvicorn[standard]>=0.46.0",
+    "uvicorn[standard]>=0.47.0",
     "sqlalchemy>=2.0.49",
     "aiosqlite>=0.20.0",
     "apscheduler>=3.10.0",
